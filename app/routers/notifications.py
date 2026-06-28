@@ -1,13 +1,11 @@
-from datetime import UTC, datetime
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models import Notification, User
 from app.schemas import NotificationRead
+from app.services import notification_service
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -20,12 +18,13 @@ def list_my_notifications(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Notification]:
-    query = select(Notification).where(Notification.user_id == current_user.id)
-    if is_read is not None:
-        query = query.where(Notification.is_read.is_(is_read))
-    return db.scalars(
-        query.order_by(Notification.created_at.desc()).offset(offset).limit(limit)
-    ).all()
+    return notification_service.list_my_notifications(
+        db=db,
+        current_user=current_user,
+        is_read=is_read,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.patch("/{notification_id}/read", response_model=NotificationRead)
@@ -34,16 +33,8 @@ def mark_notification_read(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Notification:
-    notification = db.scalar(
-        select(Notification).where(
-            Notification.id == notification_id,
-            Notification.user_id == current_user.id,
-        )
+    return notification_service.mark_notification_read(
+        db=db,
+        current_user=current_user,
+        notification_id=notification_id,
     )
-    if notification is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
-    notification.is_read = True
-    notification.read_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(notification)
-    return notification
