@@ -1,15 +1,17 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.enums import AppointmentStatus, NotificationType, UserRole
 
 
 class UserCreate(BaseModel):
+    # Public self-registration always creates a patient. Provider and admin
+    # accounts must be provisioned through a trusted/admin path, never chosen by
+    # the caller, otherwise anyone could grant themselves elevated privileges.
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(min_length=1, max_length=120)
-    role: UserRole = UserRole.patient
 
     @field_validator("email")
     @classmethod
@@ -111,13 +113,22 @@ class SlotWatcherCreate(BaseModel):
     start_after: datetime
     start_before: datetime
 
-    @field_validator("start_before")
+    @field_validator("start_after", "start_before")
     @classmethod
-    def validate_window(cls, value: datetime, info):
-        start_after = info.data.get("start_after")
-        if start_after and value <= start_after:
+    def normalize_to_utc(cls, value: datetime) -> datetime:
+        # Treat naive datetimes as UTC and normalize everything to UTC so the
+        # watcher window is compared consistently against stored slot times.
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "SlotWatcherCreate":
+        if self.start_before <= self.start_after:
             raise ValueError("start_before must be after start_after")
-        return value
+        if self.start_before <= datetime.now(UTC):
+            raise ValueError("start_before must be in the future")
+        return self
 
 
 class SlotWatcherRead(BaseModel):

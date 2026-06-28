@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -21,10 +21,12 @@ def create_slot_watcher(
 
 @router.get("/me", response_model=list[SlotWatcherRead])
 def list_my_watchers(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[SlotWatcher]:
-    return watcher_service.list_my_watchers(db, current_user)
+    return watcher_service.list_my_watchers(db, current_user, limit=limit, offset=offset)
 
 
 @router.delete("/{watcher_id}", status_code=status.HTTP_204_NO_CONTENT)

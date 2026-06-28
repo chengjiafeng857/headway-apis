@@ -38,12 +38,19 @@ def create_slot_watcher(
     return watcher
 
 
-def list_my_watchers(db: Session, current_user: User) -> list[SlotWatcher]:
+def list_my_watchers(
+    db: Session,
+    current_user: User,
+    limit: int,
+    offset: int,
+) -> list[SlotWatcher]:
     ensure_patient(current_user)
     return db.scalars(
         select(SlotWatcher)
         .where(SlotWatcher.patient_id == current_user.id, SlotWatcher.is_active.is_(True))
         .order_by(SlotWatcher.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
 
 
