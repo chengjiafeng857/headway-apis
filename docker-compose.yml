@@ -1,0 +1,25 @@
+services:
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://headway:headway@db:5432/headway
+      JWT_SECRET_KEY: local-dev-secret-change-me
+      AUTO_CREATE_TABLES: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: headway
+      POSTGRES_PASSWORD: headway
+      POSTGRES_DB: headway
+    ports:
+      - "5432:5432"
+    volumes:
+      - headway_postgres:/var/lib/postgresql/data
+
+volumes:
+  headway_postgres:

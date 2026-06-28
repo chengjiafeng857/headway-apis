@@ -1,0 +1,246 @@
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database import Base
+from app.enums import AppointmentStatus, NotificationType, SlotStatus, UserRole
+
+
+def enum_values(enum_class: type) -> str:
+    return ", ".join(f"'{item.value}'" for item in enum_class)
+
+
+class User(Base):
+    __tablename__ = "app_users"
+    __table_args__ = (
+        CheckConstraint(f"role IN ({enum_values(UserRole)})", name="ck_app_users_role"),
+        Index("ix_app_users_email", "email"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default=UserRole.patient.value)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    provider_profile: Mapped["ProviderProfile | None"] = relationship(back_populates="user")
+    appointments: Mapped[list["AppointmentRequest"]] = relationship(
+        back_populates="patient", foreign_keys="AppointmentRequest.patient_id"
+    )
+    notifications: Mapped[list["Notification"]] = relationship(back_populates="user")
+
+
+class ProviderProfile(Base):
+    __tablename__ = "provider_profiles"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_provider_profiles_user_id"),
+        Index("ix_provider_profiles_city_state", "city", "state"),
+        Index("ix_provider_profiles_offers_virtual", "offers_virtual"),
+        Index("ix_provider_profiles_offers_in_person", "offers_in_person"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    bio: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    city: Mapped[str] = mapped_column(String(80), nullable=False)
+    state: Mapped[str] = mapped_column(String(40), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False, default="America/New_York")
+    offers_virtual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    offers_in_person: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="provider_profile")
+    specialties: Mapped[list["Specialty"]] = relationship(
+        secondary="provider_specialties", back_populates="providers"
+    )
+    insurance_plans: Mapped[list["InsurancePlan"]] = relationship(
+        secondary="provider_insurance_plans", back_populates="providers"
+    )
+    availability_slots: Mapped[list["AvailabilitySlot"]] = relationship(back_populates="provider")
+    appointments: Mapped[list["AppointmentRequest"]] = relationship(back_populates="provider")
+
+
+class Specialty(Base):
+    __tablename__ = "specialties"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+
+    providers: Mapped[list[ProviderProfile]] = relationship(
+        secondary="provider_specialties", back_populates="specialties"
+    )
+
+
+class ProviderSpecialty(Base):
+    __tablename__ = "provider_specialties"
+
+    provider_id: Mapped[int] = mapped_column(ForeignKey("provider_profiles.id"), primary_key=True)
+    specialty_id: Mapped[int] = mapped_column(ForeignKey("specialties.id"), primary_key=True)
+
+
+class InsurancePlan(Base):
+    __tablename__ = "insurance_plans"
+    __table_args__ = (
+        UniqueConstraint("carrier_name", "plan_name", name="uq_insurance_carrier_plan"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    carrier_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    plan_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    providers: Mapped[list[ProviderProfile]] = relationship(
+        secondary="provider_insurance_plans", back_populates="insurance_plans"
+    )
+
+
+class ProviderInsurancePlan(Base):
+    __tablename__ = "provider_insurance_plans"
+
+    provider_id: Mapped[int] = mapped_column(ForeignKey("provider_profiles.id"), primary_key=True)
+    insurance_plan_id: Mapped[int] = mapped_column(ForeignKey("insurance_plans.id"), primary_key=True)
+
+
+class AvailabilitySlot(Base):
+    __tablename__ = "availability_slots"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({enum_values(SlotStatus)})", name="ck_slots_status"),
+        CheckConstraint("end_at > start_at", name="ck_slots_end_after_start"),
+        UniqueConstraint("provider_id", "start_at", "end_at", name="uq_provider_slot_time"),
+        Index("ix_slots_provider_status_start", "provider_id", "status", "start_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("provider_profiles.id"), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=SlotStatus.open.value)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    provider: Mapped[ProviderProfile] = relationship(back_populates="availability_slots")
+    appointments: Mapped[list["AppointmentRequest"]] = relationship(back_populates="slot")
+    notifications: Mapped[list["Notification"]] = relationship(back_populates="slot")
+
+
+class AppointmentRequest(Base):
+    __tablename__ = "appointment_requests"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({enum_values(AppointmentStatus)})", name="ck_appointments_status"),
+        Index("ix_appointments_patient_status", "patient_id", "status"),
+        Index("ix_appointments_provider_status", "provider_id", "status"),
+        Index("ix_appointments_slot", "slot_id"),
+        Index(
+            "uq_active_appointment_per_slot",
+            "slot_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'confirmed')"),
+            sqlite_where=text("status IN ('pending', 'confirmed')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("provider_profiles.id"), nullable=False)
+    slot_id: Mapped[int] = mapped_column(ForeignKey("availability_slots.id"), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=AppointmentStatus.pending.value
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+    cancelled_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    patient: Mapped[User] = relationship(back_populates="appointments", foreign_keys=[patient_id])
+    provider: Mapped[ProviderProfile] = relationship(back_populates="appointments")
+    slot: Mapped[AvailabilitySlot] = relationship(back_populates="appointments")
+    notifications: Mapped[list["Notification"]] = relationship(back_populates="appointment_request")
+
+
+class SlotWatcher(Base):
+    __tablename__ = "slot_watchers"
+    __table_args__ = (
+        CheckConstraint("start_before > start_after", name="ck_watchers_valid_window"),
+        Index("ix_watchers_patient", "patient_id"),
+        Index("ix_watchers_provider_active", "provider_id", "is_active"),
+        Index(
+            "uq_active_watcher_window",
+            "patient_id",
+            "provider_id",
+            "start_after",
+            "start_before",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("provider_profiles.id"), nullable=False)
+    start_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (
+        CheckConstraint(
+            f"type IN ({enum_values(NotificationType)})", name="ck_notifications_type"
+        ),
+        UniqueConstraint(
+            "user_id",
+            "slot_id",
+            "appointment_request_id",
+            "type",
+            name="uq_notification_dedupe",
+        ),
+        Index("ix_notifications_user_read_created", "user_id", "is_read", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
+    slot_id: Mapped[int] = mapped_column(ForeignKey("availability_slots.id"), nullable=False)
+    appointment_request_id: Mapped[int] = mapped_column(
+        ForeignKey("appointment_requests.id"), nullable=False
+    )
+    type: Mapped[str] = mapped_column(String(40), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="notifications")
+    slot: Mapped[AvailabilitySlot] = relationship(back_populates="notifications")
+    appointment_request: Mapped[AppointmentRequest] = relationship(back_populates="notifications")
