@@ -2,9 +2,9 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.models import Notification, User
+from app.models import AvailabilitySlot, Notification, User
 
 
 def list_my_notifications(
@@ -14,7 +14,11 @@ def list_my_notifications(
     limit: int,
     offset: int,
 ) -> list[Notification]:
-    query = select(Notification).where(Notification.user_id == current_user.id)
+    query = (
+        select(Notification)
+        .where(Notification.user_id == current_user.id)
+        .options(selectinload(Notification.slot).selectinload(AvailabilitySlot.provider))
+    )
     if is_read is not None:
         query = query.where(Notification.is_read.is_(is_read))
     return db.scalars(
@@ -28,10 +32,12 @@ def mark_notification_read(
     notification_id: int,
 ) -> Notification:
     notification = db.scalar(
-        select(Notification).where(
+        select(Notification)
+        .where(
             Notification.id == notification_id,
             Notification.user_id == current_user.id,
         )
+        .options(selectinload(Notification.slot).selectinload(AvailabilitySlot.provider))
     )
     if notification is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")

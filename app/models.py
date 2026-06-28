@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -244,3 +244,23 @@ class Notification(Base):
     user: Mapped[User] = relationship(back_populates="notifications")
     slot: Mapped[AvailabilitySlot] = relationship(back_populates="notifications")
     appointment_request: Mapped[AppointmentRequest] = relationship(back_populates="notifications")
+
+    @property
+    def provider_id(self) -> int:
+        return self.slot.provider_id
+
+    @property
+    def provider_name(self) -> str:
+        return self.slot.provider.display_name
+
+    @property
+    def start_at(self) -> datetime:
+        if self.slot.start_at.tzinfo is None:
+            return self.slot.start_at.replace(tzinfo=UTC)
+        return self.slot.start_at
+
+    @property
+    def end_at(self) -> datetime:
+        if self.slot.end_at.tzinfo is None:
+            return self.slot.end_at.replace(tzinfo=UTC)
+        return self.slot.end_at

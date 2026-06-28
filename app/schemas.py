@@ -197,6 +197,10 @@ class NotificationRead(BaseModel):
     id: int
     user_id: int
     slot_id: int
+    provider_id: int
+    provider_name: str
+    start_at: datetime
+    end_at: datetime
     appointment_request_id: int
     type: NotificationType
     message: str
