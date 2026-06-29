@@ -391,6 +391,14 @@ class AppointmentRequest(Base):
     slot: Mapped[AvailabilitySlot] = relationship(back_populates="appointments")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="appointment_request")
 
+    @property
+    def provider_name(self) -> str:
+        return self.provider.display_name
+
+    @property
+    def provider_type(self) -> str:
+        return self.provider.provider_type
+
 
 class SlotWatcher(Base):
     __tablename__ = "slot_watchers"

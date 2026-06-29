@@ -465,6 +465,10 @@ class AppointmentRead(BaseModel):
     id: int
     patient_id: int
     provider_id: int
+    # Flat provider identity (read from AppointmentRequest properties), so clients
+    # don't need a second /providers/{id} call to label an appointment.
+    provider_name: str
+    provider_type: str
     slot_id: int
     status: AppointmentStatus
     reason: str | None

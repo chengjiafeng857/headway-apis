@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.enums import AppointmentStatus, SlotStatus, UserRole
 from app.models import (
@@ -116,6 +116,7 @@ def list_my_appointments(
     return db.scalars(
         select(AppointmentRequest)
         .where(AppointmentRequest.patient_id == current_user.id)
+        .options(selectinload(AppointmentRequest.provider))
         .order_by(AppointmentRequest.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -137,7 +138,11 @@ def list_provider_appointments(
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider/admin only")
 
-    query = select(AppointmentRequest).order_by(AppointmentRequest.created_at.desc())
+    query = (
+        select(AppointmentRequest)
+        .options(selectinload(AppointmentRequest.provider))
+        .order_by(AppointmentRequest.created_at.desc())
+    )
     if query_provider_id is not None:
         query = query.where(AppointmentRequest.provider_id == query_provider_id)
     return db.scalars(query.offset(offset).limit(limit)).all()
