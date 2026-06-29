@@ -54,5 +54,19 @@ jobs:
 
           sudo docker build -t headway-apis-api:latest .
           sudo docker compose up -d --no-build --force-recreate api
-          curl -fsS http://127.0.0.1/health
+
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1/health; then
+              echo
+              break
+            fi
+
+            if [ "$attempt" -eq 30 ]; then
+              sudo docker compose logs --tail=100 api
+              exit 1
+            fi
+
+            sleep 2
+          done
+
           sudo docker compose ps
