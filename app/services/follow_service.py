@@ -1,7 +1,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import ProviderFollow, ProviderProfile, User
 from app.schemas import ProviderFollowCreate
@@ -46,6 +46,7 @@ def list_my_provider_follows(
     return db.scalars(
         select(ProviderFollow)
         .where(ProviderFollow.patient_id == current_user.id, ProviderFollow.is_active.is_(True))
+        .options(selectinload(ProviderFollow.provider))
         .order_by(ProviderFollow.created_at.desc())
         .offset(offset)
         .limit(limit)

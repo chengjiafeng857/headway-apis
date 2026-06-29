@@ -490,6 +490,20 @@ class ProviderFollowCreate(RequestModel):
     provider_id: int = Field(gt=0)
 
 
+class ProviderBrief(BaseModel):
+    # Lightweight provider identity for embedding in list responses (e.g. follows),
+    # where the full ProviderSummary would be unnecessarily heavy.
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    display_name: str
+    provider_type: str
+    credential: str | None
+    profile_photo_url: str | None
+    city: str
+    state: str
+
+
 class ProviderFollowRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -498,6 +512,7 @@ class ProviderFollowRead(BaseModel):
     provider_id: int
     is_active: bool
     created_at: datetime
+    provider: ProviderBrief
 
 
 class NotificationRead(BaseModel):
