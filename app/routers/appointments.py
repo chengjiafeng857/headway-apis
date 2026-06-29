@@ -32,15 +32,19 @@ def create_appointment_request(
 
 @router.get("/me", response_model=list[AppointmentRead])
 def list_my_appointments(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[AppointmentRequest]:
-    return appointment_service.list_my_appointments(db, current_user)
+    return appointment_service.list_my_appointments(db, current_user, limit=limit, offset=offset)
 
 
 @router.get("/provider", response_model=list[AppointmentRead])
 def list_provider_appointments(
     provider_id: int | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[AppointmentRequest]:
@@ -48,6 +52,8 @@ def list_provider_appointments(
         db=db,
         current_user=current_user,
         provider_id=provider_id,
+        limit=limit,
+        offset=offset,
     )
 
 

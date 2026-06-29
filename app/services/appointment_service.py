@@ -128,11 +128,18 @@ def create_appointment_request(
     return appointment
 
 
-def list_my_appointments(db: Session, current_user: User) -> list[AppointmentRequest]:
+def list_my_appointments(
+    db: Session,
+    current_user: User,
+    limit: int,
+    offset: int,
+) -> list[AppointmentRequest]:
     return db.scalars(
         select(AppointmentRequest)
         .where(AppointmentRequest.patient_id == current_user.id)
         .order_by(AppointmentRequest.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
 
 
@@ -140,6 +147,8 @@ def list_provider_appointments(
     db: Session,
     current_user: User,
     provider_id: int | None,
+    limit: int,
+    offset: int,
 ) -> list[AppointmentRequest]:
     if current_user.role == UserRole.provider.value:
         provider = get_provider_profile_for_user(db, current_user)
@@ -152,7 +161,7 @@ def list_provider_appointments(
     query = select(AppointmentRequest).order_by(AppointmentRequest.created_at.desc())
     if query_provider_id is not None:
         query = query.where(AppointmentRequest.provider_id == query_provider_id)
-    return db.scalars(query).all()
+    return db.scalars(query.offset(offset).limit(limit)).all()
 
 
 def update_appointment_status(

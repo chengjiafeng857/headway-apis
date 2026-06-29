@@ -32,6 +32,11 @@ def test_watcher_lifecycle_and_mark_notification_read(
     assert notifications.status_code == 200
     notification = notifications.json()[0]
     assert notification["is_read"] is False
+    assert notification["slot_id"] == seeded_data["open_slot"].id
+    assert notification["provider_id"] == seeded_data["provider"].id
+    assert notification["provider_name"] == "Dr. Maya Chen"
+    assert notification["start_at"] == seeded_data["open_slot"].start_at.isoformat().replace("+00:00", "Z")
+    assert notification["end_at"] == seeded_data["open_slot"].end_at.isoformat().replace("+00:00", "Z")
 
     read_response = client.patch(
         f"/notifications/{notification['id']}/read",
@@ -39,6 +44,7 @@ def test_watcher_lifecycle_and_mark_notification_read(
     )
     assert read_response.status_code == 200
     assert read_response.json()["is_read"] is True
+    assert read_response.json()["provider_id"] == seeded_data["provider"].id
 
 
 def test_non_matching_watcher_receives_no_notification(

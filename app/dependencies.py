@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,18 +10,23 @@ from app.core.security import decode_access_token
 from app.enums import UserRole
 from app.models import User
 
+# Declaring the bearer scheme registers it in the OpenAPI schema, so Swagger UI
+# shows the padlock icon and the global "Authorize" button on protected routes.
+# auto_error=False lets us raise our own 401 with a consistent error body.
+bearer_scheme = HTTPBearer(auto_error=False)
+
 
 def get_current_user(
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token",
         )
 
-    token = authorization.split(" ", 1)[1].strip()
+    token = credentials.credentials.strip()
     try:
         payload = decode_access_token(token)
         user_id = int(payload["sub"])

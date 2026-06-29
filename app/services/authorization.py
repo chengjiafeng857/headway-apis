@@ -11,6 +11,11 @@ def ensure_patient(user: User) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Patient role required")
 
 
+def ensure_provider(user: User) -> None:
+    if user.role != UserRole.provider.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
+
+
 def get_provider_profile_for_user(db: Session, user: User) -> ProviderProfile:
     provider = db.scalar(select(ProviderProfile).where(ProviderProfile.user_id == user.id))
     if provider is None:
