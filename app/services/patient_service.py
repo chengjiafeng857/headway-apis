@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     ConsentForm,
@@ -48,7 +48,11 @@ def _validate_insurance_plan(db: Session, insurance_plan_id: int | None) -> None
 
 def get_my_profile(db: Session, current_user: User) -> PatientAccountRead:
     ensure_patient(current_user)
-    profile = db.scalar(select(PatientProfile).where(PatientProfile.user_id == current_user.id))
+    profile = db.scalar(
+        select(PatientProfile)
+        .where(PatientProfile.user_id == current_user.id)
+        .options(selectinload(PatientProfile.insurance_plan))
+    )
     addresses = list_my_addresses(db, current_user)
     emergency_contacts = list_my_emergency_contacts(db, current_user)
     consents = list_my_consents(db, current_user)

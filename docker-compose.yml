@@ -8,7 +8,7 @@ services:
       # its own WebSocket connections. No separate broker or worker process.
       REALTIME_DISPATCH_ENABLED: "true"
     ports:
-      - "8000:8000"
+      - "8000:80"
     depends_on:
       - db
 

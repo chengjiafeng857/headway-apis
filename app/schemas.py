@@ -316,6 +316,9 @@ class PatientProfileRead(BaseModel):
     ethnicity: str | None
     language: str | None
     insurance_plan_id: int | None
+    # Resolved plan details (carrier / plan / display name), so a patient profile
+    # can show its insurance the same way provider profiles do — not just an id.
+    insurance_plan: InsurancePlanRead | None = None
     two_factor_enrolled: bool
     created_at: datetime
     updated_at: datetime
