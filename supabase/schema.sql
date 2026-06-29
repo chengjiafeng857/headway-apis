@@ -219,7 +219,9 @@ create table if not exists public.notifications (
     user_id bigint not null references public.app_users(id),
     slot_id bigint not null references public.availability_slots(id),
     appointment_request_id bigint references public.appointment_requests(id),
-    type varchar(40) not null check (type in ('slot_opened', 'slot_reopened')),
+    type varchar(40) not null check (
+        type in ('slot_opened', 'slot_reopened', 'appointment_cancelled', 'appointment_declined')
+    ),
     message text not null,
     is_read boolean not null default false,
     created_at timestamptz not null default now(),

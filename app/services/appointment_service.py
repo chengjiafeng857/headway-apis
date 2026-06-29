@@ -5,7 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.enums import AppointmentStatus, SlotStatus, UserRole
+from app.enums import AppointmentStatus, NotificationType, SlotStatus, UserRole
 from app.models import (
     AppointmentRequest,
     AvailabilitySlot,
@@ -16,7 +16,10 @@ from app.services.authorization import (
     ensure_patient,
     get_provider_profile_for_user,
 )
-from app.services.notification_service import create_slot_reopened_notifications
+from app.services.notification_service import (
+    create_appointment_finalized_notification,
+    create_slot_reopened_notifications,
+)
 
 
 ALLOWED_STATUS_TRANSITIONS = {
@@ -49,10 +52,13 @@ def _reopen_slot_and_notify(
     db: Session,
     appointment: AppointmentRequest,
     slot: AvailabilitySlot,
+    patient_notification_type: NotificationType | None = None,
 ) -> None:
     # Slot reopening and notification/outbox creation happen in the caller's
     # transaction, so users cannot see a reopened slot without its alerts.
     slot.status = SlotStatus.open.value
+    if patient_notification_type is not None:
+        create_appointment_finalized_notification(db, appointment, slot, patient_notification_type)
     create_slot_reopened_notifications(db, slot, appointment)
 
 
@@ -204,7 +210,12 @@ def update_appointment_status(
     if new_status == AppointmentStatus.cancelled:
         appointment.cancelled_reason = reason
     if new_status in {AppointmentStatus.cancelled, AppointmentStatus.declined}:
-        _reopen_slot_and_notify(db, appointment, slot)
+        patient_notification_type = (
+            NotificationType.appointment_cancelled
+            if new_status == AppointmentStatus.cancelled
+            else NotificationType.appointment_declined
+        )
+        _reopen_slot_and_notify(db, appointment, slot, patient_notification_type)
 
     db.commit()
     db.refresh(appointment)
@@ -252,7 +263,12 @@ def cancel_appointment(
     appointment.cancelled_reason = reason
     # Reopening the slot and notifying interested patients are committed with
     # the cancellation; rollback removes both if any part fails.
-    _reopen_slot_and_notify(db, appointment, slot)
+    patient_notification_type = (
+        None
+        if current_user.role == UserRole.patient.value and current_user.id == appointment.patient_id
+        else NotificationType.appointment_cancelled
+    )
+    _reopen_slot_and_notify(db, appointment, slot, patient_notification_type)
     db.commit()
     db.refresh(appointment)
     return appointment

@@ -24,6 +24,8 @@ class AppointmentStatus(str, Enum):
 class NotificationType(str, Enum):
     slot_opened = "slot_opened"
     slot_reopened = "slot_reopened"
+    appointment_cancelled = "appointment_cancelled"
+    appointment_declined = "appointment_declined"
 
 
 class OutboxStatus(str, Enum):

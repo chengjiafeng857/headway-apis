@@ -148,6 +148,43 @@ def create_slot_reopened_notifications(
     )
 
 
+def create_appointment_finalized_notification(
+    db: Session,
+    appointment: AppointmentRequest,
+    slot: AvailabilitySlot,
+    notification_type: NotificationType,
+) -> None:
+    if notification_type == NotificationType.appointment_cancelled:
+        status_text = "cancelled"
+    elif notification_type == NotificationType.appointment_declined:
+        status_text = "declined"
+    else:
+        raise ValueError("Unsupported appointment notification type")
+
+    if _notification_exists(
+        db,
+        appointment.patient_id,
+        slot.id,
+        notification_type,
+        appointment.id,
+    ):
+        return
+
+    notification = Notification(
+        user_id=appointment.patient_id,
+        slot=slot,
+        appointment_request=appointment,
+        type=notification_type.value,
+        message=(
+            f"Your appointment with {appointment.provider.display_name} "
+            f"at {slot.start_at.isoformat()} was {status_text}."
+        ),
+    )
+    db.add(notification)
+    db.flush()
+    create_notification_outbox_event(db, notification)
+
+
 def list_my_notifications(
     db: Session,
     current_user: User,

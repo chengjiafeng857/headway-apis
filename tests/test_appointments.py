@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.enums import AppointmentStatus, SlotStatus
-from app.models import AppointmentRequest, AvailabilitySlot
+from app.models import AppointmentRequest, AvailabilitySlot, OutboxEvent
 
 
 def test_patient_books_open_slot(client, seeded_data, patient_headers, db_session):
@@ -167,6 +167,108 @@ def test_cancel_reopens_slot_and_makes_it_available(
     notifications = notification_response.json()
     assert len(notifications) == 1
     assert notifications[0]["type"] == "slot_reopened"
+
+    patient_notifications = client.get("/notifications/me", headers=patient_headers)
+    assert patient_notifications.status_code == 200
+    assert patient_notifications.json() == []
+
+
+def test_provider_cancel_notifies_booked_patient_and_reopen_watchers(
+    client,
+    seeded_data,
+    patient_headers,
+    provider_headers,
+    second_patient_headers,
+    db_session,
+):
+    watcher_response = client.post(
+        "/slot-watchers",
+        headers=second_patient_headers,
+        json={
+            "provider_id": seeded_data["provider"].id,
+            "start_after": seeded_data["open_slot"].start_at.isoformat(),
+            "start_before": seeded_data["second_slot"].start_at.isoformat(),
+        },
+    )
+    assert watcher_response.status_code == 201
+
+    create_response = client.post(
+        "/appointment-requests",
+        headers=patient_headers,
+        json={"provider_id": seeded_data["provider"].id, "slot_id": seeded_data["open_slot"].id},
+    )
+    assert create_response.status_code == 201
+    appointment_id = create_response.json()["id"]
+
+    cancel_response = client.post(
+        f"/appointment-requests/{appointment_id}/cancel",
+        headers=provider_headers,
+        json={"reason": "Provider unavailable"},
+    )
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["status"] == "cancelled"
+
+    patient_notifications = client.get("/notifications/me", headers=patient_headers)
+    assert patient_notifications.status_code == 200
+    patient_notification = patient_notifications.json()[0]
+    assert patient_notification["type"] == "appointment_cancelled"
+    assert patient_notification["appointment_request_id"] == appointment_id
+    assert patient_notification["user_id"] == seeded_data["patient"].id
+    assert "was cancelled" in patient_notification["message"]
+
+    watcher_notifications = client.get("/notifications/me", headers=second_patient_headers)
+    assert watcher_notifications.status_code == 200
+    watcher_notification = watcher_notifications.json()[0]
+    assert watcher_notification["type"] == "slot_reopened"
+    assert watcher_notification["appointment_request_id"] == appointment_id
+    assert watcher_notification["user_id"] == seeded_data["second_patient"].id
+
+    db_session.expire_all()
+    events = db_session.scalars(
+        select(OutboxEvent).order_by(OutboxEvent.user_id, OutboxEvent.event_type)
+    ).all()
+    assert {(event.user_id, event.event_type) for event in events} == {
+        (seeded_data["patient"].id, "appointment_cancelled"),
+        (seeded_data["second_patient"].id, "slot_reopened"),
+    }
+
+
+def test_provider_decline_notifies_booked_patient(
+    client,
+    seeded_data,
+    patient_headers,
+    provider_headers,
+    db_session,
+):
+    create_response = client.post(
+        "/appointment-requests",
+        headers=patient_headers,
+        json={"provider_id": seeded_data["provider"].id, "slot_id": seeded_data["open_slot"].id},
+    )
+    assert create_response.status_code == 201
+    appointment_id = create_response.json()["id"]
+
+    decline_response = client.patch(
+        f"/appointment-requests/{appointment_id}/status",
+        headers=provider_headers,
+        json={"status": "declined", "reason": "Not a fit"},
+    )
+    assert decline_response.status_code == 200
+
+    patient_notifications = client.get("/notifications/me", headers=patient_headers)
+    assert patient_notifications.status_code == 200
+    assert len(patient_notifications.json()) == 1
+    notification = patient_notifications.json()[0]
+    assert notification["type"] == "appointment_declined"
+    assert notification["appointment_request_id"] == appointment_id
+    assert "was declined" in notification["message"]
+
+    db_session.expire_all()
+    event = db_session.scalar(select(OutboxEvent).where(OutboxEvent.user_id == seeded_data["patient"].id))
+    assert event is not None
+    assert event.event_type == "appointment_declined"
+    assert event.payload["event"] == "appointment_declined"
+    assert event.payload["notification_id"] == notification["id"]
 
 
 def test_cancel_already_cancelled_returns_conflict(client, seeded_data, patient_headers):

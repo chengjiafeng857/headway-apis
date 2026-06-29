@@ -20,9 +20,11 @@ flow. Core capabilities:
   consent acknowledgements.
 - Provider self-service: profile, availability slots, and taxonomy assignments.
 - Appointment requests with **race-safe booking** and a status state machine.
-- Appointment cancellation/decline that **reopens the slot** and alerts watchers.
+- Appointment cancellation/decline that **reopens the slot**, alerts watchers,
+  and notifies the booked patient when the provider/admin finalizes it.
 - **Provider follows** and **time-window slot watchers** as notification sources.
-- In-app `slot_opened` / `slot_reopened` notifications, persisted durably.
+- In-app `slot_opened` / `slot_reopened` / `appointment_cancelled` /
+  `appointment_declined` notifications, persisted durably.
 - A **transactional outbox** feeding an **in-process realtime dispatcher** that
   pushes events to connected WebSocket clients. (No Redis — see §7.)
 
@@ -151,7 +153,8 @@ Tables: `app_users`, `oauth_identities`, `provider_profiles`, `specialties`/`pro
   `(patient_id, provider_id, start_after, start_before)` where active.
 - `provider_follows`: partial unique index on `(patient_id, provider_id)` where
   active.
-- `notifications`: two partial unique indexes for de-duplication —
+- `notifications`: type `slot_opened|slot_reopened|appointment_cancelled|appointment_declined`;
+  two partial unique indexes for de-duplication —
   `(user_id, slot_id, appointment_request_id, type)` when
   `appointment_request_id IS NOT NULL`, and `(user_id, slot_id, type)` when it
   IS NULL. `provider_id`, `provider_name`, `start_at`, `end_at` are **derived
@@ -265,7 +268,9 @@ the current signal). `published` outbox rows are retained (no trimming yet).
   `ALLOWED_STATUS_TRANSITIONS`; terminal statuses
   (`cancelled|declined|completed`) are immutable. Cancel/decline calls
   `_reopen_slot_and_notify` (slot → `open`, create `slot_reopened` notifications
-  for followers/watchers except the cancelling patient).
+  for followers/watchers except the cancelling patient). Provider/admin-driven
+  cancellation/decline also creates a direct `appointment_cancelled` or
+  `appointment_declined` notification for the booked patient.
 - ⚠️ **KNOWN GAP (open):** `FOR UPDATE SKIP LOCKED` / row locks are **no-ops on
   SQLite**, which is the default and the test database. So the booking and outbox
   concurrency guarantees are real only on PostgreSQL and are **not exercised by
