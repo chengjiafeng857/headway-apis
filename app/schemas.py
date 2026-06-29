@@ -99,6 +99,20 @@ class InsurancePlanRead(BaseModel):
     display_name: str
 
 
+class ProviderBrief(BaseModel):
+    # Lightweight provider identity for embedding in other responses (follows,
+    # availability), where the full ProviderSummary would be unnecessarily heavy.
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    display_name: str
+    provider_type: str
+    credential: str | None
+    profile_photo_url: str | None
+    city: str
+    state: str
+
+
 class ProviderSummary(BaseModel):
     id: int
     display_name: str
@@ -137,6 +151,13 @@ class AvailabilitySlotRead(BaseModel):
     start_at: datetime
     end_at: datetime
     status: str
+
+
+class ProviderAvailabilityRead(BaseModel):
+    # Open slots for a provider, plus enough provider identity for the client to
+    # render the availability view without a second /providers/{id} call.
+    provider: ProviderBrief
+    slots: list[AvailabilitySlotRead]
 
 
 class ProviderProfileCreate(RequestModel):
@@ -488,20 +509,6 @@ class SlotWatcherRead(BaseModel):
 
 class ProviderFollowCreate(RequestModel):
     provider_id: int = Field(gt=0)
-
-
-class ProviderBrief(BaseModel):
-    # Lightweight provider identity for embedding in list responses (e.g. follows),
-    # where the full ProviderSummary would be unnecessarily heavy.
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    display_name: str
-    provider_type: str
-    credential: str | None
-    profile_photo_url: str | None
-    city: str
-    state: str
 
 
 class ProviderFollowRead(BaseModel):

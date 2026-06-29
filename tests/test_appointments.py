@@ -158,7 +158,9 @@ def test_cancel_reopens_slot_and_makes_it_available(
     assert slot.status == SlotStatus.open.value
 
     availability_response = client.get(f"/providers/{seeded_data['provider'].id}/availability")
-    assert seeded_data["open_slot"].id in {slot["id"] for slot in availability_response.json()}
+    assert seeded_data["open_slot"].id in {
+        slot["id"] for slot in availability_response.json()["slots"]
+    }
 
     notification_response = client.get("/notifications/me", headers=second_patient_headers)
     assert notification_response.status_code == 200

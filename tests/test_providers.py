@@ -45,9 +45,11 @@ def test_provider_detail_and_missing_provider(client, seeded_data):
 def test_availability_returns_only_open_slots(client, seeded_data):
     response = client.get(f"/providers/{seeded_data['provider'].id}/availability")
     assert response.status_code == 200
-    statuses = {slot["status"] for slot in response.json()}
+    payload = response.json()
+    assert payload["provider"]["id"] == seeded_data["provider"].id
+    statuses = {slot["status"] for slot in payload["slots"]}
     assert statuses == {"open"}
-    slot_ids = {slot["id"] for slot in response.json()}
+    slot_ids = {slot["id"] for slot in payload["slots"]}
     assert seeded_data["booked_slot"].id not in slot_ids
 
 

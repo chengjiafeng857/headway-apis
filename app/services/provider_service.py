@@ -17,7 +17,10 @@ from app.models import (
 )
 from app.schemas import (
     AvailabilitySlotCreate,
+    AvailabilitySlotRead,
     InsurancePlanRead,
+    ProviderAvailabilityRead,
+    ProviderBrief,
     ProviderDetail,
     ProviderProfileCreate,
     ProviderProfileUpdate,
@@ -196,9 +199,9 @@ def list_provider_availability(
     provider_id: int,
     start_after: datetime | None,
     start_before: datetime | None,
-) -> list[AvailabilitySlot]:
-    provider_exists = db.scalar(select(ProviderProfile.id).where(ProviderProfile.id == provider_id))
-    if provider_exists is None:
+) -> ProviderAvailabilityRead:
+    provider = db.scalar(select(ProviderProfile).where(ProviderProfile.id == provider_id))
+    if provider is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
 
     query = select(AvailabilitySlot).where(
@@ -210,7 +213,11 @@ def list_provider_availability(
     if start_before:
         query = query.where(AvailabilitySlot.start_at <= start_before)
 
-    return db.scalars(query.order_by(AvailabilitySlot.start_at)).all()
+    slots = db.scalars(query.order_by(AvailabilitySlot.start_at)).all()
+    return ProviderAvailabilityRead(
+        provider=ProviderBrief.model_validate(provider),
+        slots=[AvailabilitySlotRead.model_validate(slot) for slot in slots],
+    )
 
 
 def list_insurance_plans(db: Session) -> list[InsurancePlan]:

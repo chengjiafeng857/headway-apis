@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import AvailabilitySlot, InsurancePlan
+from app.models import InsurancePlan
 from app.schemas import (
-    AvailabilitySlotRead,
     InsurancePlanRead,
+    ProviderAvailabilityRead,
     ProviderDetail,
     ProviderSummary,
 )
@@ -61,13 +61,13 @@ def get_provider(provider_id: int, db: Session = Depends(get_db)) -> ProviderDet
     return provider_service.get_provider(db, provider_id)
 
 
-@router.get("/providers/{provider_id}/availability", response_model=list[AvailabilitySlotRead])
+@router.get("/providers/{provider_id}/availability", response_model=ProviderAvailabilityRead)
 def get_provider_availability(
     provider_id: int,
     start_after: datetime | None = None,
     start_before: datetime | None = None,
     db: Session = Depends(get_db),
-) -> list[AvailabilitySlot]:
+) -> ProviderAvailabilityRead:
     return provider_service.list_provider_availability(
         db=db,
         provider_id=provider_id,

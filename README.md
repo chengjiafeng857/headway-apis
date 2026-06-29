@@ -65,6 +65,29 @@ cp .env.example .env
 docker compose up --build
 ```
 
+## CI/CD
+
+Pushes to `dev` run `.github/workflows/deploy-dev.yml`.
+
+The workflow:
+
+1. installs dependencies with `uv sync --locked`
+2. runs `uv run pytest`
+3. SSHes to the VPS
+4. resets `/home/ec2-user/headway-apis` to `origin/dev`
+5. rebuilds the Docker image
+6. recreates the `api` service and checks `/health`
+
+Configure these GitHub repository secrets:
+
+- `VPS_HOST`: EC2 public DNS or IP
+- `VPS_USER`: `ec2-user`
+- `VPS_SSH_PRIVATE_KEY`: private key that can SSH to the VPS
+- `VPS_PORT`: optional, defaults to `22`
+
+Keep app secrets in `/home/ec2-user/headway-apis/.env` on the VPS. Do not add
+Supabase credentials or JWT secrets to GitHub Actions.
+
 Re-seed demo data any time:
 
 ```bash
