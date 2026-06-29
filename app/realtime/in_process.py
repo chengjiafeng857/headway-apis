@@ -21,5 +21,7 @@ class InProcessPublisher:
         self._manager = connection_manager
 
     async def publish(self, event: OutboxEvent) -> str:
+        # delivered == 0 is still a successful publish: offline users recover
+        # the durable notification through GET /notifications/me.
         delivered = await self._manager.send_to_user(event.user_id, event.payload)
         return f"inprocess:{delivered}"

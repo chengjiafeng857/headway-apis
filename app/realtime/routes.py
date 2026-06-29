@@ -71,6 +71,8 @@ async def notifications_websocket(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    # This registers only the live socket; missed events are not replayed here,
+    # so clients must reconcile through GET /notifications/me after connecting.
     await manager.connect(user.id, websocket)
     try:
         while True:

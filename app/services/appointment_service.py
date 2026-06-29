@@ -50,6 +50,8 @@ def _reopen_slot_and_notify(
     appointment: AppointmentRequest,
     slot: AvailabilitySlot,
 ) -> None:
+    # Slot reopening and notification/outbox creation happen in the caller's
+    # transaction, so users cannot see a reopened slot without its alerts.
     slot.status = SlotStatus.open.value
     create_slot_reopened_notifications(db, slot, appointment)
 
@@ -63,6 +65,8 @@ def create_appointment_request(
 ) -> AppointmentRequest:
     ensure_patient(current_user)
 
+    # Postgres serializes concurrent booking/closing/status changes here; SQLite
+    # treats this as advisory, so real race tests must run against Postgres.
     slot = db.scalar(
         select(AvailabilitySlot)
         .where(AvailabilitySlot.id == slot_id)
@@ -78,6 +82,8 @@ def create_appointment_request(
     if _as_utc(slot.start_at) <= datetime.now(UTC):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot book past slot")
 
+    # This conditional write is the booking race gate: only the first request
+    # that still sees the slot as open can move it to booked.
     updated = db.execute(
         update(AvailabilitySlot)
         .where(
@@ -101,6 +107,8 @@ def create_appointment_request(
     try:
         db.commit()
     except IntegrityError:
+        # The partial unique index is the final backstop against two live
+        # appointments for one slot, including races or direct DB writes.
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slot is already booked")
     db.refresh(appointment)
@@ -155,6 +163,8 @@ def update_appointment_status(
     new_status: AppointmentStatus,
     reason: str | None,
 ) -> AppointmentRequest:
+    # Serializes provider/admin status changes against patient cancellation on
+    # Postgres; the terminal-state checks below reject whichever request loses.
     appointment = db.scalar(
         select(AppointmentRequest)
         .where(AppointmentRequest.id == appointment_id)
@@ -180,6 +190,8 @@ def update_appointment_status(
             detail="Invalid appointment status transition",
         )
 
+    # Lock the slot before reopening it, so decline/cancel does not race with
+    # another slot-level operation in the same time window.
     slot = db.scalar(
         select(AvailabilitySlot)
         .where(AvailabilitySlot.id == appointment.slot_id)
@@ -205,6 +217,8 @@ def cancel_appointment(
     appointment_id: int,
     reason: str | None,
 ) -> AppointmentRequest:
+    # Uses the same appointment lock as provider/admin status updates, so a
+    # patient cancel and provider decline cannot both finalize the appointment.
     appointment = db.scalar(
         select(AppointmentRequest)
         .where(AppointmentRequest.id == appointment_id)
@@ -236,6 +250,8 @@ def cancel_appointment(
 
     appointment.status = AppointmentStatus.cancelled.value
     appointment.cancelled_reason = reason
+    # Reopening the slot and notifying interested patients are committed with
+    # the cancellation; rollback removes both if any part fails.
     _reopen_slot_and_notify(db, appointment, slot)
     db.commit()
     db.refresh(appointment)

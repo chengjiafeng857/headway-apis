@@ -21,6 +21,8 @@ async def dispatch_outbox_events(
     synchronous and briefly blocks the event loop each poll; acceptable at
     single-instance scale, swap to a threadpool if it ever becomes hot.
     """
+    # The default publisher targets this process's in-memory ConnectionManager,
+    # so this dispatcher must run inside the API process that owns the sockets.
     outbox_publisher = publisher or InProcessPublisher()
     interval = poll_seconds if poll_seconds is not None else settings.outbox_poll_seconds
 

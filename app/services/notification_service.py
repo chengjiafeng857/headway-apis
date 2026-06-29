@@ -63,6 +63,8 @@ def _slot_alert_recipient_ids(
     slot: AvailabilitySlot,
     exclude_patient_id: int | None = None,
 ) -> set[int]:
+    # Set union prevents a patient who both follows the provider and watches the
+    # matching window from receiving two notifications for the same slot event.
     return _matching_provider_follower_ids(db, slot, exclude_patient_id) | _matching_slot_watcher_ids(
         db,
         slot,
@@ -86,6 +88,8 @@ def _notification_exists(
         query = query.where(Notification.appointment_request_id.is_(None))
     else:
         query = query.where(Notification.appointment_request_id == appointment_request_id)
+    # This is the cheap application-level dedupe; partial unique indexes on
+    # notifications remain the concurrency-safe backstop at commit time.
     return db.scalar(query) is not None
 
 
@@ -110,6 +114,8 @@ def _create_slot_alert_notifications(
         )
         db.add(notification)
         db.flush()
+        # The payload snapshot is written before commit, so REST reconciliation
+        # and realtime delivery refer to the same notification id.
         create_notification_outbox_event(db, notification)
 
 
@@ -136,6 +142,8 @@ def create_slot_reopened_notifications(
             f"at {slot.start_at.isoformat()}."
         ),
         appointment=appointment,
+        # The cancelling patient caused this reopen and should not be alerted
+        # about their own cancellation.
         exclude_patient_id=appointment.patient_id,
     )
 

@@ -67,6 +67,8 @@ async def publish_pending_events(
     max_attempts: int = 3,
 ) -> OutboxPublishResult:
     limit = batch_size or settings.outbox_batch_size
+    # SKIP LOCKED lets multiple Postgres dispatchers avoid the same rows; SQLite
+    # ignores this, so worker-concurrency behavior must be verified on Postgres.
     events = db.scalars(
         select(OutboxEvent)
         .where(
@@ -87,12 +89,16 @@ async def publish_pending_events(
     failed = 0
     dead = 0
     for event in events:
+        # Count the attempt before publishing so failures and dead-letter state
+        # reflect the try that just happened.
         event.attempt_count += 1
         try:
             event.stream_message_id = await publisher.publish(event)
             event.status = OutboxStatus.published.value
             event.published_at = datetime.now(UTC)
             event.last_error = None
+            # Published rows are retained for audit/debug today; retention must
+            # be added as a separate cleanup path when table growth matters.
             published += 1
         except Exception as exc:  # pragma: no cover - exact broker errors vary by deployment.
             event.last_error = str(exc)
@@ -100,6 +106,8 @@ async def publish_pending_events(
             if event.attempt_count >= max_attempts:
                 event.status = OutboxStatus.dead.value
                 dead += 1
+                # This log is currently the dead-letter alerting surface; add a
+                # metric/alert before relying on this operationally.
                 logger.error(
                     "Outbox event %s dead-lettered after %s attempts: %s",
                     event.id,
@@ -107,6 +115,8 @@ async def publish_pending_events(
                     exc,
                 )
             else:
+                # Leave the row retryable; the next dispatcher poll will select
+                # failed events whose attempt count is still below the ceiling.
                 event.status = OutboxStatus.failed.value
                 logger.warning(
                     "Outbox event %s publish attempt %s failed, will retry: %s",

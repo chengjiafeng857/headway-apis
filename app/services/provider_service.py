@@ -383,6 +383,8 @@ def close_my_slot(db: Session, current_user: User, slot_id: int) -> None:
     # Soft-close (status -> cancelled) rather than delete, so historical
     # appointments and notifications that reference the slot stay intact.
     profile = _load_my_profile(db, current_user)
+    # Pairs with booking's slot lock on Postgres: close waits for an in-flight
+    # booking, and booking waits for an in-flight close.
     slot = db.scalar(
         select(AvailabilitySlot)
         .where(
@@ -393,6 +395,8 @@ def close_my_slot(db: Session, current_user: User, slot_id: int) -> None:
     )
     if slot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
+    # If a booking committed while close was waiting, the provider must cancel
+    # the appointment instead of silently hiding a booked slot.
     if slot.status == SlotStatus.booked.value:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
