@@ -88,10 +88,14 @@ trusted path.
 
 Patient-owned account data is exposed under `/patients/me`:
 
-- `/patients/me/profile` for the aggregate account forms payload
-- `/patients/me/addresses`
-- `/patients/me/emergency-contacts`
-- `/patients/me/consents`
+- `GET /patients/me/profile` for the aggregate account forms payload
+- `PATCH /patients/me/profile` to partially update the singleton patient profile,
+  creating it when missing
+- `PUT /patients/me/addresses` to replace the full address list
+- `PUT /patients/me/emergency-contacts` to replace the full emergency contact
+  list
+- `POST /patients/me/consents/{form_key}/accept` for explicit consent
+  acceptance
 
 Provider-owned profile enrichment is exposed under `/providers/me` with
 taxonomy updates for `/specialties`, `/insurance-plans`, `/style-tags`, and

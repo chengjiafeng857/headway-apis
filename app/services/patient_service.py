@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,13 +15,10 @@ from app.models import (
     User,
 )
 from app.schemas import (
-    EmergencyContactCreate,
-    EmergencyContactUpdate,
+    EmergencyContactWrite,
     PatientAddressCreate,
-    PatientAddressUpdate,
+    PatientAccountRead,
     PatientConsentRead,
-    PatientInfoFormsRead,
-    PatientProfileCreate,
     PatientProfileRead,
     PatientProfileUpdate,
     PatientAddressRead,
@@ -49,52 +46,13 @@ def _validate_insurance_plan(db: Session, insurance_plan_id: int | None) -> None
         )
 
 
-def _load_my_profile(db: Session, current_user: User) -> PatientProfile:
-    ensure_patient(current_user)
-    profile = db.scalar(select(PatientProfile).where(PatientProfile.user_id == current_user.id))
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found")
-    return profile
-
-
-def create_my_profile(
-    db: Session,
-    current_user: User,
-    payload: PatientProfileCreate,
-) -> PatientProfile:
-    ensure_patient(current_user)
-    updates = payload.model_dump(exclude_unset=True)
-    _ensure_non_empty_payload(updates)
-    _validate_insurance_plan(db, updates.get("insurance_plan_id"))
-
-    existing = db.scalar(select(PatientProfile.id).where(PatientProfile.user_id == current_user.id))
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Patient profile already exists",
-        )
-
-    profile = PatientProfile(user_id=current_user.id, **updates)
-    db.add(profile)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Patient profile already exists",
-        )
-    db.refresh(profile)
-    return profile
-
-
-def get_my_info_forms(db: Session, current_user: User) -> PatientInfoFormsRead:
+def get_my_profile(db: Session, current_user: User) -> PatientAccountRead:
     ensure_patient(current_user)
     profile = db.scalar(select(PatientProfile).where(PatientProfile.user_id == current_user.id))
     addresses = list_my_addresses(db, current_user)
     emergency_contacts = list_my_emergency_contacts(db, current_user)
     consents = list_my_consents(db, current_user)
-    return PatientInfoFormsRead(
+    return PatientAccountRead(
         profile=PatientProfileRead.model_validate(profile) if profile else None,
         addresses=[PatientAddressRead.model_validate(address) for address in addresses],
         emergency_contacts=[
@@ -109,38 +67,48 @@ def update_my_profile(
     current_user: User,
     payload: PatientProfileUpdate,
 ) -> PatientProfile:
-    profile = _load_my_profile(db, current_user)
+    ensure_patient(current_user)
     updates = payload.model_dump(exclude_unset=True)
     _ensure_non_empty_payload(updates)
     _validate_insurance_plan(db, updates.get("insurance_plan_id"))
-    for field, value in updates.items():
-        setattr(profile, field, value)
-    db.commit()
+
+    profile = db.scalar(select(PatientProfile).where(PatientProfile.user_id == current_user.id))
+    if profile is None:
+        profile = PatientProfile(user_id=current_user.id, **updates)
+        db.add(profile)
+    else:
+        for field, value in updates.items():
+            setattr(profile, field, value)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Patient profile already exists",
+        )
     db.refresh(profile)
     return profile
 
 
-def _unset_primary_addresses(db: Session, patient_id: int) -> None:
-    for address in db.scalars(
-        select(PatientAddress).where(
-            PatientAddress.patient_id == patient_id,
-            PatientAddress.is_primary.is_(True),
-        )
-    ):
-        address.is_primary = False
+def _normalize_address_primary_flags(
+    payloads: list[PatientAddressCreate],
+) -> list[tuple[PatientAddressCreate, bool]]:
+    if not payloads:
+        return []
 
-
-def _load_my_address(db: Session, current_user: User, address_id: int) -> PatientAddress:
-    ensure_patient(current_user)
-    address = db.scalar(
-        select(PatientAddress).where(
-            PatientAddress.id == address_id,
-            PatientAddress.patient_id == current_user.id,
+    primary_indexes = [
+        index for index, payload in enumerate(payloads) if payload.is_primary is True
+    ]
+    if len(primary_indexes) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At most one primary address is allowed",
         )
-    )
-    if address is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Address not found")
-    return address
+
+    primary_index = primary_indexes[0] if primary_indexes else 0
+    return [(payload, index == primary_index) for index, payload in enumerate(payloads)]
 
 
 def list_my_addresses(db: Session, current_user: User) -> list[PatientAddress]:
@@ -152,72 +120,92 @@ def list_my_addresses(db: Session, current_user: User) -> list[PatientAddress]:
     ).all()
 
 
-def create_my_address(
+def replace_my_addresses(
     db: Session,
     current_user: User,
-    payload: PatientAddressCreate,
-) -> PatientAddress:
+    payloads: list[PatientAddressCreate],
+) -> list[PatientAddress]:
     ensure_patient(current_user)
-    address_count = db.scalar(
-        select(func.count(PatientAddress.id)).where(PatientAddress.patient_id == current_user.id)
+    normalized_addresses = _normalize_address_primary_flags(payloads)
+
+    db.execute(delete(PatientAddress).where(PatientAddress.patient_id == current_user.id))
+    db.add_all(
+        [
+            PatientAddress(
+                patient_id=current_user.id,
+                **payload.model_dump(exclude={"is_primary"}),
+                is_primary=is_primary,
+            )
+            for payload, is_primary in normalized_addresses
+        ]
     )
-    is_primary = payload.is_primary or address_count == 0
-    if is_primary:
-        _unset_primary_addresses(db, current_user.id)
-
-    address = PatientAddress(
-        patient_id=current_user.id,
-        **payload.model_dump(exclude={"is_primary"}),
-        is_primary=is_primary,
-    )
-    db.add(address)
-    db.commit()
-    db.refresh(address)
-    return address
-
-
-def update_my_address(
-    db: Session,
-    current_user: User,
-    address_id: int,
-    payload: PatientAddressUpdate,
-) -> PatientAddress:
-    address = _load_my_address(db, current_user, address_id)
-    updates = payload.model_dump(exclude_unset=True)
-    _ensure_non_empty_payload(updates)
-    if updates.get("is_primary") is True:
-        _unset_primary_addresses(db, current_user.id)
-    for field, value in updates.items():
-        setattr(address, field, value)
-    db.commit()
-    db.refresh(address)
-    return address
-
-
-def delete_my_address(db: Session, current_user: User, address_id: int) -> None:
-    address = _load_my_address(db, current_user, address_id)
-    db.delete(address)
-    db.commit()
-
-
-def _load_my_emergency_contact(
-    db: Session,
-    current_user: User,
-    contact_id: int,
-) -> EmergencyContact:
-    ensure_patient(current_user)
-    contact = db.scalar(
-        select(EmergencyContact).where(
-            EmergencyContact.id == contact_id,
-            EmergencyContact.patient_id == current_user.id,
-        )
-    )
-    if contact is None:
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Emergency contact not found",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Address replacement conflicts with existing data",
         )
-    return contact
+    return list_my_addresses(db, current_user)
+
+
+def _resolve_emergency_contact_priorities(
+    payloads: list[EmergencyContactWrite],
+) -> list[tuple[EmergencyContactWrite, int]]:
+    if len(payloads) > 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At most two emergency contacts are allowed",
+        )
+
+    explicit_priorities = [
+        payload.priority for payload in payloads if payload.priority is not None
+    ]
+    if len(explicit_priorities) != len(set(explicit_priorities)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Emergency contact priorities must be unique",
+        )
+
+    available_priorities = [priority for priority in (1, 2) if priority not in explicit_priorities]
+    resolved_contacts: list[tuple[EmergencyContactWrite, int]] = []
+    for payload in payloads:
+        priority = payload.priority
+        if priority is None:
+            priority = available_priorities.pop(0)
+        resolved_contacts.append((payload, priority))
+    return resolved_contacts
+
+
+def replace_my_emergency_contacts(
+    db: Session,
+    current_user: User,
+    payloads: list[EmergencyContactWrite],
+) -> list[EmergencyContact]:
+    ensure_patient(current_user)
+    resolved_contacts = _resolve_emergency_contact_priorities(payloads)
+
+    db.execute(delete(EmergencyContact).where(EmergencyContact.patient_id == current_user.id))
+    db.add_all(
+        [
+            EmergencyContact(
+                patient_id=current_user.id,
+                **payload.model_dump(exclude={"priority"}),
+                priority=priority,
+            )
+            for payload, priority in resolved_contacts
+        ]
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Emergency contact replacement conflicts with existing data",
+        )
+    return list_my_emergency_contacts(db, current_user)
 
 
 def list_my_emergency_contacts(db: Session, current_user: User) -> list[EmergencyContact]:
@@ -227,66 +215,6 @@ def list_my_emergency_contacts(db: Session, current_user: User) -> list[Emergenc
         .where(EmergencyContact.patient_id == current_user.id)
         .order_by(EmergencyContact.priority)
     ).all()
-
-
-def create_my_emergency_contact(
-    db: Session,
-    current_user: User,
-    payload: EmergencyContactCreate,
-) -> EmergencyContact:
-    ensure_patient(current_user)
-    contact_count = db.scalar(
-        select(func.count(EmergencyContact.id)).where(
-            EmergencyContact.patient_id == current_user.id
-        )
-    )
-    if contact_count >= 2:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="At most two emergency contacts are allowed",
-        )
-
-    contact = EmergencyContact(patient_id=current_user.id, **payload.model_dump())
-    db.add(contact)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Emergency contact priority already exists",
-        )
-    db.refresh(contact)
-    return contact
-
-
-def update_my_emergency_contact(
-    db: Session,
-    current_user: User,
-    contact_id: int,
-    payload: EmergencyContactUpdate,
-) -> EmergencyContact:
-    contact = _load_my_emergency_contact(db, current_user, contact_id)
-    updates = payload.model_dump(exclude_unset=True)
-    _ensure_non_empty_payload(updates)
-    for field, value in updates.items():
-        setattr(contact, field, value)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Emergency contact priority already exists",
-        )
-    db.refresh(contact)
-    return contact
-
-
-def delete_my_emergency_contact(db: Session, current_user: User, contact_id: int) -> None:
-    contact = _load_my_emergency_contact(db, current_user, contact_id)
-    db.delete(contact)
-    db.commit()
 
 
 def _consent_read(

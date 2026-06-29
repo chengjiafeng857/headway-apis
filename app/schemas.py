@@ -343,28 +343,6 @@ class PatientAddressCreate(RequestModel):
         return value.strip().upper() if isinstance(value, str) else value
 
 
-class PatientAddressUpdate(RequestModel):
-    label: str | None = Field(default=None, min_length=1, max_length=40)
-    line1: str | None = Field(default=None, min_length=1, max_length=160)
-    line2: str | None = Field(default=None, max_length=160)
-    city: str | None = Field(default=None, min_length=1, max_length=80)
-    state: str | None = Field(default=None, min_length=1, max_length=40)
-    postal_code: str | None = Field(default=None, min_length=1, max_length=20)
-    country: str | None = Field(default=None, min_length=2, max_length=2)
-    source: AddressSource | None = None
-    is_primary: bool | None = None
-
-    @field_validator("label", "line1", "line2", "city", "state", "postal_code", mode="before")
-    @classmethod
-    def trim_text(cls, value: str | None) -> str | None:
-        return trim_optional_text(value)
-
-    @field_validator("country", mode="before")
-    @classmethod
-    def normalize_country(cls, value: str | None) -> str | None:
-        return value.strip().upper() if isinstance(value, str) else value
-
-
 class PatientAddressRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -383,27 +361,13 @@ class PatientAddressRead(BaseModel):
     updated_at: datetime
 
 
-class EmergencyContactCreate(RequestModel):
+class EmergencyContactWrite(RequestModel):
     full_name: str = Field(min_length=1, max_length=120)
     relationship: str | None = Field(default=None, max_length=80)
     phone: str = Field(min_length=1, max_length=40)
     email: EmailStr | None = None
-    priority: int = Field(default=1, ge=1, le=2)
-    permission_to_contact: bool = True
-
-    @field_validator("full_name", "relationship", "phone", mode="before")
-    @classmethod
-    def trim_text(cls, value: str | None) -> str | None:
-        return trim_optional_text(value)
-
-
-class EmergencyContactUpdate(RequestModel):
-    full_name: str | None = Field(default=None, min_length=1, max_length=120)
-    relationship: str | None = Field(default=None, max_length=80)
-    phone: str | None = Field(default=None, min_length=1, max_length=40)
-    email: EmailStr | None = None
     priority: int | None = Field(default=None, ge=1, le=2)
-    permission_to_contact: bool | None = None
+    permission_to_contact: bool = True
 
     @field_validator("full_name", "relationship", "phone", mode="before")
     @classmethod
@@ -449,7 +413,7 @@ class PatientConsentRead(BaseModel):
     revoked_at: datetime | None
 
 
-class PatientInfoFormsRead(BaseModel):
+class PatientAccountRead(BaseModel):
     profile: PatientProfileRead | None
     addresses: list[PatientAddressRead]
     emergency_contacts: list[EmergencyContactRead]
