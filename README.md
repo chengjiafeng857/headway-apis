@@ -18,7 +18,7 @@ FastAPI backend inspired by Headway's therapy-provider search and scheduling flo
 - Provider/time-window watchers
 - In-app slot-opened and reopened-slot notifications
 - Transactional outbox events for reliable notification publishing
-- Redis Streams fanout to a FastAPI WebSocket gateway
+- In-process outbox dispatcher pushing events to a FastAPI WebSocket gateway
 - SQLAlchemy models compatible with PostgreSQL/Supabase
 
 ## Local Run
@@ -29,13 +29,11 @@ uv run python -m scripts.seed
 uv run uvicorn app.main:app --reload
 ```
 
-To use realtime WebSocket delivery locally, run Redis and the outbox worker in
-separate terminals:
+To use realtime WebSocket delivery locally, run the API with the in-process
+outbox dispatcher enabled — no Redis, no separate worker:
 
 ```bash
-redis-server
-uv run python -m scripts.outbox_worker
-WEBSOCKET_REDIS_CONSUMER_ENABLED=true uv run uvicorn app.main:app --reload
+REALTIME_DISPATCH_ENABLED=true uv run uvicorn app.main:app --reload
 ```
 
 The frontend connects with the existing FastAPI JWT:
@@ -44,9 +42,17 @@ The frontend connects with the existing FastAPI JWT:
 ws://localhost:8000/ws/notifications?token=<access-token>
 ```
 
-Realtime messages are hints. After receiving a `slot_opened` or `slot_reopened`
-event, refresh `GET /providers/{provider_id}/availability` before showing the
-slot as currently bookable.
+WebSocket delivery is **best-effort**: an event fired while a user has no live
+socket (offline, page reload, flaky network) is dropped and never replayed over
+the socket. Clients **must** reconcile on every (re)connect:
+
+1. On connect, call `GET /notifications/me?is_read=false` and render the backlog.
+2. Dedupe live socket events against that backlog by `notification_id` (events
+   and REST rows share the same id).
+
+Realtime messages are also hints about availability. After a `slot_opened` or
+`slot_reopened` event, refresh `GET /providers/{provider_id}/availability`
+before showing the slot as currently bookable.
 
 For a Supabase-backed run, copy `.env.example` to `.env`, replace every
 placeholder, and initialize the schema from `supabase/schema.sql` before seeding.
@@ -107,13 +113,20 @@ taxonomy updates for `/specialties`, `/insurance-plans`, `/style-tags`, and
 
 Provider slot creation, appointment cancellation, and appointment decline flows
 insert `notifications` rows and `outbox_events` rows in the same database
-transaction. The outbox worker publishes pending events to Redis Streams, and the
-FastAPI WebSocket gateway consumes the stream and pushes events to connected
-users.
+transaction. An in-process dispatcher (`app/realtime/dispatcher.py`), started in
+the app lifespan when `REALTIME_DISPATCH_ENABLED=true`, polls the outbox and
+hands each payload to the in-memory `ConnectionManager`, which pushes it to the
+connected user's WebSocket sockets.
 
 Durable truth remains in the database:
 
 - `notifications` stores what the user should be able to recover later.
 - `outbox_events` stores what still needs to be published.
-- Redis Streams handles multi-process event fanout.
-- WebSocket delivery is best-effort and backed by `GET /notifications/me`.
+- The dispatcher delivers to local sockets; offline users are skipped.
+- WebSocket delivery is best-effort and backed by `GET /notifications/me`
+  (clients reconcile on (re)connect, deduping by `notification_id`).
+
+This is single-instance by design: delivery targets in-memory sockets, so the
+dispatcher must run inside the API process. Scaling to multiple instances later
+means reintroducing a broker (Redis pub/sub for fan-out, or Streams) between the
+outbox and the gateways — the `OutboxPublisher` protocol is the seam for that.

@@ -4,27 +4,13 @@ services:
     env_file:
       - .env
     environment:
-      REDIS_URL: redis://redis:6379/0
-      WEBSOCKET_REDIS_CONSUMER_ENABLED: "true"
+      # Run the in-process outbox dispatcher so the API delivers notifications to
+      # its own WebSocket connections. No separate broker or worker process.
+      REALTIME_DISPATCH_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-
-  outbox-worker:
-    build: .
-    command: ["python", "-m", "scripts.outbox_worker"]
-    env_file:
-      - .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - redis
-
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
+      - db
 
   db:
     image: postgres:16

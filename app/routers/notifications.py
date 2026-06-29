@@ -18,6 +18,14 @@ def list_my_notifications(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Notification]:
+    """List the caller's notifications, newest first.
+
+    This endpoint is the durable source of truth behind the realtime WebSocket
+    (`/ws/notifications`). Socket delivery is best-effort, so clients MUST call
+    `GET /notifications/me?is_read=false` on every (re)connect to recover events
+    fired while they had no live socket, and dedupe against live socket events by
+    `notification_id` (both carry the same id).
+    """
     return notification_service.list_my_notifications(
         db=db,
         current_user=current_user,

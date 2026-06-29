@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import socket
 
 from dotenv import load_dotenv
 
@@ -20,18 +19,13 @@ class Settings:
     jwt_expire_minutes: int = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
     auto_create_tables: bool = os.getenv("AUTO_CREATE_TABLES", "false").lower() == "true"
     environment: str = os.getenv("ENVIRONMENT", "development")
-    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    redis_notifications_stream: str = os.getenv(
-        "REDIS_NOTIFICATIONS_STREAM", "notifications:stream"
-    )
-    redis_consumer_group: str = os.getenv(
-        "REDIS_CONSUMER_GROUP", f"headway-ws-{socket.gethostname()}-{os.getpid()}"
-    )
-    redis_consumer_name: str = os.getenv("REDIS_CONSUMER_NAME", f"consumer-{os.getpid()}")
-    websocket_redis_consumer_enabled: bool = (
-        os.getenv("WEBSOCKET_REDIS_CONSUMER_ENABLED", "false").lower() == "true"
+    # Run the in-process outbox dispatcher that pushes notifications to connected
+    # WebSocket sockets. Must run inside the API process (delivery is in-memory).
+    realtime_dispatch_enabled: bool = (
+        os.getenv("REALTIME_DISPATCH_ENABLED", "false").lower() == "true"
     )
     outbox_batch_size: int = int(os.getenv("OUTBOX_BATCH_SIZE", "50"))
+    outbox_poll_seconds: float = float(os.getenv("OUTBOX_POLL_SECONDS", "1.0"))
     # DB_ECHO logs every SQL statement; DB_ECHO_POOL logs connection pool
     # activity (connect / checkout / checkin). Keep both off in production.
     db_echo: bool = os.getenv("DB_ECHO", "false").lower() == "true"

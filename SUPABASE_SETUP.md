@@ -28,14 +28,13 @@ Use Supabase as hosted PostgreSQL. FastAPI remains the public API layer and uses
    JWT_EXPIRE_MINUTES=60
    AUTO_CREATE_TABLES=false
    ENVIRONMENT=production
-   REDIS_URL=redis://<host>:6379/0
-   REDIS_NOTIFICATIONS_STREAM=notifications:stream
-   WEBSOCKET_REDIS_CONSUMER_ENABLED=true
+   REALTIME_DISPATCH_ENABLED=true
    ```
 
-   Leave `REDIS_CONSUMER_GROUP` unset unless you intentionally manage routing.
-   The default is unique per FastAPI process so every WebSocket gateway instance
-   can observe each event and deliver only to locally connected sockets.
+   `REALTIME_DISPATCH_ENABLED=true` runs the in-process outbox dispatcher that
+   pushes notifications to connected WebSocket sockets. This is single-instance
+   only — delivery is in-memory, so it must run inside the API process. To scale
+   horizontally later, reintroduce a broker between the outbox and the gateways.
 
 6. Initialize the schema once by running `supabase/schema.sql` in the Supabase SQL Editor or
    through `psql`.
@@ -44,12 +43,6 @@ Use Supabase as hosted PostgreSQL. FastAPI remains the public API layer and uses
 
    ```bash
    python -m scripts.seed
-   ```
-
-8. Run the outbox worker as a separate process or container:
-
-   ```bash
-   python -m scripts.outbox_worker
    ```
 
 If you want to create the schema directly from the Supabase SQL editor instead, run
@@ -65,4 +58,4 @@ constraints, and indexes.
 - The schema uses constraints and partial unique indexes to protect appointment integrity.
 - The booking endpoint uses a row lock plus an atomic conditional update so two clients cannot book the same open slot.
 - Realtime WebSocket delivery uses the existing FastAPI JWT; do not expose Supabase service credentials to the frontend.
-- Keep `notifications` as durable truth and Redis/WebSockets as delivery acceleration.
+- Keep `notifications` as durable truth and WebSockets as delivery acceleration.

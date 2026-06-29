@@ -223,7 +223,7 @@ create table if not exists public.outbox_events (
     user_id bigint not null references public.app_users(id),
     payload jsonb not null,
     status varchar(20) not null default 'pending'
-        check (status in ('pending', 'published', 'failed')),
+        check (status in ('pending', 'published', 'failed', 'dead')),
     attempt_count integer not null default 0,
     stream_message_id varchar(80),
     last_error text,

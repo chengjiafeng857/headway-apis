@@ -29,4 +29,5 @@ class NotificationType(str, Enum):
 class OutboxStatus(str, Enum):
     pending = "pending"
     published = "published"
-    failed = "failed"
+    failed = "failed"  # transient failure, still within the retry budget
+    dead = "dead"  # exhausted retries; terminal, never re-attempted

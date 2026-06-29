@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import logging
 from typing import Protocol
 
 from sqlalchemy import and_, or_, select
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.enums import OutboxStatus
 from app.models import Notification, OutboxEvent
+
+logger = logging.getLogger(__name__)
 
 
 class OutboxPublisher(Protocol):
@@ -21,6 +24,7 @@ class OutboxPublisher(Protocol):
 class OutboxPublishResult:
     published: int
     failed: int
+    dead: int = 0
 
 
 def _iso_utc(value: datetime) -> str:
@@ -81,6 +85,7 @@ async def publish_pending_events(
 
     published = 0
     failed = 0
+    dead = 0
     for event in events:
         event.attempt_count += 1
         try:
@@ -89,13 +94,25 @@ async def publish_pending_events(
             event.published_at = datetime.now(UTC)
             event.last_error = None
             published += 1
-        except Exception as exc:  # pragma: no cover - exact Redis errors vary by deployment.
+        except Exception as exc:  # pragma: no cover - exact broker errors vary by deployment.
             event.last_error = str(exc)
-            event.status = (
-                OutboxStatus.failed.value
-                if event.attempt_count >= max_attempts
-                else OutboxStatus.pending.value
-            )
             failed += 1
+            if event.attempt_count >= max_attempts:
+                event.status = OutboxStatus.dead.value
+                dead += 1
+                logger.error(
+                    "Outbox event %s dead-lettered after %s attempts: %s",
+                    event.id,
+                    event.attempt_count,
+                    exc,
+                )
+            else:
+                event.status = OutboxStatus.failed.value
+                logger.warning(
+                    "Outbox event %s publish attempt %s failed, will retry: %s",
+                    event.id,
+                    event.attempt_count,
+                    exc,
+                )
     db.commit()
-    return OutboxPublishResult(published=published, failed=failed)
+    return OutboxPublishResult(published=published, failed=failed, dead=dead)
