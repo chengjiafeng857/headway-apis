@@ -5,8 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.enums import SlotStatus
+from app.enums import AppointmentStatus, SlotStatus
 from app.models import (
+    AppointmentRequest,
     AvailabilitySlot,
     CareType,
     InsurancePlan,
@@ -24,6 +25,7 @@ from app.schemas import (
     ProviderDetail,
     ProviderProfileCreate,
     ProviderProfileUpdate,
+    ProviderSlotRead,
     ProviderSummary,
 )
 from app.services.authorization import ensure_provider
@@ -368,15 +370,43 @@ def list_my_slots(
     current_user: User,
     limit: int,
     offset: int,
-) -> list[AvailabilitySlot]:
+) -> list[ProviderSlotRead]:
     profile = _load_my_profile(db, current_user)
-    return db.scalars(
+    slots = db.scalars(
         select(AvailabilitySlot)
         .where(AvailabilitySlot.provider_id == profile.id)
         .order_by(AvailabilitySlot.start_at)
         .offset(offset)
         .limit(limit)
     ).all()
+
+    # Map each booked slot to the patient holding its active appointment. An
+    # active appointment is one that has not been cancelled/declined (those
+    # reopen the slot), so there is at most one per booked slot.
+    booked_slot_ids = [slot.id for slot in slots if slot.status == SlotStatus.booked.value]
+    patient_by_slot: dict[int, int] = {}
+    if booked_slot_ids:
+        rows = db.execute(
+            select(AppointmentRequest.slot_id, AppointmentRequest.patient_id).where(
+                AppointmentRequest.slot_id.in_(booked_slot_ids),
+                AppointmentRequest.status.notin_(
+                    [AppointmentStatus.cancelled.value, AppointmentStatus.declined.value]
+                ),
+            )
+        ).all()
+        patient_by_slot = {slot_id: patient_id for slot_id, patient_id in rows}
+
+    return [
+        ProviderSlotRead(
+            id=slot.id,
+            provider_id=slot.provider_id,
+            start_at=slot.start_at,
+            end_at=slot.end_at,
+            status=slot.status,
+            patient_id=patient_by_slot.get(slot.id),
+        )
+        for slot in slots
+    ]
 
 
 def close_my_slot(db: Session, current_user: User, slot_id: int) -> None:

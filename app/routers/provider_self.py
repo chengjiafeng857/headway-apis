@@ -12,6 +12,7 @@ from app.schemas import (
     ProviderInsurancePlansUpdate,
     ProviderProfileCreate,
     ProviderProfileUpdate,
+    ProviderSlotRead,
     ProviderSpecialtiesUpdate,
     ProviderStyleTagsUpdate,
 )
@@ -62,13 +63,13 @@ def create_my_slot(
     return provider_service.create_my_slot(db, current_user, payload)
 
 
-@router.get("/availability", response_model=list[AvailabilitySlotRead])
+@router.get("/availability", response_model=list[ProviderSlotRead])
 def list_my_slots(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[AvailabilitySlot]:
+) -> list[ProviderSlotRead]:
     return provider_service.list_my_slots(db, current_user, limit=limit, offset=offset)
 
 
