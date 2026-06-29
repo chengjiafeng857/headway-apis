@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -16,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.enums import AppointmentStatus, NotificationType, SlotStatus, UserRole
+from app.enums import AppointmentStatus, NotificationType, OutboxStatus, SlotStatus, UserRole
 
 
 def enum_values(enum_class: type) -> str:
@@ -264,3 +265,27 @@ class Notification(Base):
         if self.slot.end_at.tzinfo is None:
             return self.slot.end_at.replace(tzinfo=UTC)
         return self.slot.end_at
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({enum_values(OutboxStatus)})", name="ck_outbox_status"),
+        Index("ix_outbox_status_created", "status", "created_at"),
+        Index("ix_outbox_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    aggregate_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=OutboxStatus.pending.value)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stream_message_id: Mapped[str | None] = mapped_column(String(80))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship()

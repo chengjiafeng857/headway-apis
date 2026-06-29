@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import hash_password
 from app.enums import SlotStatus, UserRole
@@ -30,7 +31,9 @@ def get_or_create_user(db, email: str, full_name: str, role: UserRole) -> User:
 
 
 def seed() -> None:
-    Base.metadata.create_all(bind=engine)
+    if settings.auto_create_tables or settings.database_url.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
     try:
         patient = get_or_create_user(db, "patient@example.com", "Demo Patient", UserRole.patient)

@@ -1,14 +1,30 @@
 services:
   api:
     build: .
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://headway:headway@db:5432/headway
-      JWT_SECRET_KEY: local-dev-secret-change-me
-      AUTO_CREATE_TABLES: "true"
+      REDIS_URL: redis://redis:6379/0
+      WEBSOCKET_REDIS_CONSUMER_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      - redis
+
+  outbox-worker:
+    build: .
+    command: ["python", "-m", "scripts.outbox_worker"]
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
 
   db:
     image: postgres:16

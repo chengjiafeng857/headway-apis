@@ -18,6 +18,7 @@ from app.services.authorization import (
     ensure_patient,
     get_provider_profile_for_user,
 )
+from app.services.outbox_service import create_notification_outbox_event
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -52,18 +53,19 @@ def _create_reopened_slot_notifications(
         )
         if existing_notification:
             continue
-        db.add(
-            Notification(
-                user_id=watcher.patient_id,
-                slot_id=slot.id,
-                appointment_request_id=appointment.id,
-                type=NotificationType.slot_reopened.value,
-                message=(
-                    f"A slot reopened with provider {appointment.provider.display_name} "
-                    f"at {slot.start_at.isoformat()}."
-                ),
-            )
+        notification = Notification(
+            user_id=watcher.patient_id,
+            slot=slot,
+            appointment_request=appointment,
+            type=NotificationType.slot_reopened.value,
+            message=(
+                f"A slot reopened with provider {appointment.provider.display_name} "
+                f"at {slot.start_at.isoformat()}."
+            ),
         )
+        db.add(notification)
+        db.flush()
+        create_notification_outbox_event(db, notification)
 
 
 def _reopen_slot_and_notify(
