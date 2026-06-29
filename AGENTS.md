@@ -298,7 +298,7 @@ cancelled/declined.
 - **auth** (`/auth`): `POST /register`, `POST /login`,
   `GET /oauth/{provider}/login`, `GET /oauth/{provider}/callback`, `GET /me`.
 - **providers** (public): `GET /providers`, `GET /providers/{id}`,
-  `GET /providers/{id}/availability`, `GET /insurance-plans`.
+  `GET /providers/{id}/availability`, `GET /insurance-plans`, `GET /specialties`.
 - **provider_self** (`/providers/me`): `POST` / `GET` / `PATCH` profile;
   `POST /availability`, `GET /availability`, `DELETE /availability/{slot_id}`;
   `PUT /specialties|/insurance-plans|/style-tags|/care-types`.

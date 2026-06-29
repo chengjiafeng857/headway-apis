@@ -226,6 +226,10 @@ def list_insurance_plans(db: Session) -> list[InsurancePlan]:
     return db.scalars(select(InsurancePlan).order_by(InsurancePlan.display_name)).all()
 
 
+def list_specialties(db: Session) -> list[Specialty]:
+    return db.scalars(select(Specialty).order_by(Specialty.name)).all()
+
+
 # --- Provider self-service -------------------------------------------------
 # These operate strictly on the authenticated provider's own profile, so
 # ownership is implicit: every lookup is scoped to current_user.id.

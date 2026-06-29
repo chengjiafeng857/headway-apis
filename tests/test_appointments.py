@@ -72,6 +72,42 @@ def test_patient_can_view_only_own_appointments(
     assert other_response.json() == []
 
 
+def test_provider_can_view_own_appointments_from_me_endpoint(
+    client,
+    seeded_data,
+    patient_headers,
+    second_patient_headers,
+    provider_headers,
+    other_provider_headers,
+):
+    own_create = client.post(
+        "/appointment-requests",
+        headers=patient_headers,
+        json={"provider_id": seeded_data["provider"].id, "slot_id": seeded_data["open_slot"].id},
+    )
+    assert own_create.status_code == 201
+
+    other_create = client.post(
+        "/appointment-requests",
+        headers=second_patient_headers,
+        json={
+            "provider_id": seeded_data["other_provider"].id,
+            "slot_id": seeded_data["other_slot"].id,
+        },
+    )
+    assert other_create.status_code == 201
+
+    own_response = client.get("/appointment-requests/me", headers=provider_headers)
+    assert own_response.status_code == 200
+    assert [appointment["id"] for appointment in own_response.json()] == [own_create.json()["id"]]
+
+    other_response = client.get("/appointment-requests/me", headers=other_provider_headers)
+    assert other_response.status_code == 200
+    assert [appointment["id"] for appointment in other_response.json()] == [
+        other_create.json()["id"]
+    ]
+
+
 def test_provider_confirms_own_appointment(client, seeded_data, patient_headers, provider_headers):
     create_response = client.post(
         "/appointment-requests",

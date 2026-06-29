@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import InsurancePlan
+from app.models import InsurancePlan, Specialty
 from app.schemas import (
     InsurancePlanRead,
     ProviderAvailabilityRead,
     ProviderDetail,
     ProviderSummary,
+    SpecialtyRead,
 )
 from app.services import provider_service
 
@@ -79,3 +80,8 @@ def get_provider_availability(
 @router.get("/insurance-plans", response_model=list[InsurancePlanRead])
 def list_insurance_plans(db: Session = Depends(get_db)) -> list[InsurancePlan]:
     return provider_service.list_insurance_plans(db)
+
+
+@router.get("/specialties", response_model=list[SpecialtyRead])
+def list_specialties(db: Session = Depends(get_db)) -> list[Specialty]:
+    return provider_service.list_specialties(db)

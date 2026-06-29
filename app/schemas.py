@@ -90,6 +90,13 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class SpecialtyRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
 class InsurancePlanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

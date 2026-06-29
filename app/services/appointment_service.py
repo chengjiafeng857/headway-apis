@@ -127,13 +127,19 @@ def list_my_appointments(
     limit: int,
     offset: int,
 ) -> list[AppointmentRequest]:
-    return db.scalars(
+    query = (
         select(AppointmentRequest)
-        .where(AppointmentRequest.patient_id == current_user.id)
         .options(selectinload(AppointmentRequest.provider))
         .order_by(AppointmentRequest.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+    )
+    if current_user.role == UserRole.provider.value:
+        provider = get_provider_profile_for_user(db, current_user)
+        query = query.where(AppointmentRequest.provider_id == provider.id)
+    else:
+        query = query.where(AppointmentRequest.patient_id == current_user.id)
+
+    return db.scalars(
+        query.offset(offset).limit(limit)
     ).all()
 
 

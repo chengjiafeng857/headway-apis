@@ -62,6 +62,15 @@ def test_insurance_plans(client, seeded_data):
     }
 
 
+def test_specialties(client, seeded_data):
+    response = client.get("/specialties")
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": seeded_data["anxiety"].id, "name": "Anxiety"},
+        {"id": seeded_data["depression"].id, "name": "Depression"},
+    ]
+
+
 def test_provider_search_headway_style_filters(client, seeded_data):
     response = client.get("/providers", params={"style": "Warm"})
     assert response.status_code == 200
