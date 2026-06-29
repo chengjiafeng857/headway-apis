@@ -73,17 +73,17 @@ The workflow:
 
 1. installs dependencies with `uv sync --locked`
 2. runs `uv run pytest`
-3. SSHes to the VPS
+3. runs the deploy job on the `api-vps` self-hosted runner
 4. resets `/home/ec2-user/headway-apis` to `origin/dev`
 5. rebuilds the Docker image
 6. recreates the `api` service and checks `/health`
 
-Configure these GitHub repository secrets:
+The VPS runner must be registered to this repository with the `dev-deploy`
+label and running as a systemd service. Check it with:
 
-- `VPS_HOST`: EC2 public DNS or IP
-- `VPS_USER`: `ec2-user`
-- `VPS_SSH_PRIVATE_KEY`: private key that can SSH to the VPS
-- `VPS_PORT`: optional, defaults to `22`
+```bash
+sudo systemctl status actions.runner.chengjiafeng857-headway-apis.api-vps
+```
 
 Keep app secrets in `/home/ec2-user/headway-apis/.env` on the VPS. Do not add
 Supabase credentials or JWT secrets to GitHub Actions.

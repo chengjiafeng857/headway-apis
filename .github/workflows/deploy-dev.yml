@@ -38,32 +38,13 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, dev-deploy]
     needs: test
     environment: dev
 
-    env:
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
-
     steps:
-      - name: Validate deploy configuration
-        run: |
-          test -n "$VPS_HOST"
-          test -n "$VPS_USER"
-
-      - name: Configure SSH
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          test -s ~/.ssh/deploy_key
-          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
-
       - name: Deploy dev branch
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" <<'EOF'
           set -euo pipefail
 
           cd /home/ec2-user/headway-apis
@@ -75,4 +56,3 @@ jobs:
           sudo docker compose up -d --no-build --force-recreate api
           curl -fsS http://127.0.0.1/health
           sudo docker compose ps
-          EOF
