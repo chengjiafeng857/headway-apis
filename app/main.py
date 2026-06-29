@@ -14,6 +14,7 @@ from app.routers import (
     auth,
     follows,
     notifications,
+    patient_self,
     provider_self,
     providers,
     watchers,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
         Base.metadata.create_all(bind=engine)
 
     app.include_router(auth.router)
+    app.include_router(patient_self.router)
     # provider_self must be registered before the public providers router so that
     # "/providers/me" matches the self-service routes instead of being parsed as
     # "/providers/{provider_id}" (which would 422 on the non-int "me").

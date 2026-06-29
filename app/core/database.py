@@ -20,6 +20,8 @@ engine = create_engine(
     settings.database_url,
     connect_args=_connect_args(settings.database_url),
     pool_pre_ping=True,
+    echo=settings.db_echo,
+    echo_pool="debug" if settings.db_echo_pool else False,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 

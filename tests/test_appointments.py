@@ -208,3 +208,77 @@ def test_decline_reopens_slot(client, seeded_data, patient_headers, provider_hea
     appointment = db_session.scalar(select(AppointmentRequest).where(AppointmentRequest.id == appointment_id))
     assert slot.status == SlotStatus.open.value
     assert appointment.status == AppointmentStatus.declined.value
+
+
+def test_declined_appointment_cannot_be_confirmed_after_slot_reopens(
+    client, seeded_data, patient_headers, provider_headers, db_session
+):
+    create_response = client.post(
+        "/appointment-requests",
+        headers=patient_headers,
+        json={"provider_id": seeded_data["provider"].id, "slot_id": seeded_data["open_slot"].id},
+    )
+    appointment_id = create_response.json()["id"]
+
+    decline_response = client.patch(
+        f"/appointment-requests/{appointment_id}/status",
+        headers=provider_headers,
+        json={"status": "declined"},
+    )
+    assert decline_response.status_code == 200
+
+    confirm_response = client.patch(
+        f"/appointment-requests/{appointment_id}/status",
+        headers=provider_headers,
+        json={"status": "confirmed"},
+    )
+    assert confirm_response.status_code == 409
+
+    db_session.expire_all()
+    slot = db_session.get(AvailabilitySlot, seeded_data["open_slot"].id)
+    appointment = db_session.scalar(select(AppointmentRequest).where(AppointmentRequest.id == appointment_id))
+    assert slot.status == SlotStatus.open.value
+    assert appointment.status == AppointmentStatus.declined.value
+
+
+def test_declined_appointment_cannot_be_cancelled_again(
+    client, seeded_data, patient_headers, provider_headers
+):
+    create_response = client.post(
+        "/appointment-requests",
+        headers=patient_headers,
+        json={"provider_id": seeded_data["provider"].id, "slot_id": seeded_data["open_slot"].id},
+    )
+    appointment_id = create_response.json()["id"]
+
+    decline_response = client.patch(
+        f"/appointment-requests/{appointment_id}/status",
+        headers=provider_headers,
+        json={"status": "declined"},
+    )
+    assert decline_response.status_code == 200
+
+    cancel_response = client.post(
+        f"/appointment-requests/{appointment_id}/cancel",
+        headers=patient_headers,
+        json={},
+    )
+    assert cancel_response.status_code == 409
+
+
+def test_pending_appointment_cannot_be_completed_directly(
+    client, seeded_data, patient_headers, provider_headers
+):
+    create_response = client.post(
+        "/appointment-requests",
+        headers=patient_headers,
+        json={"provider_id": seeded_data["provider"].id, "slot_id": seeded_data["open_slot"].id},
+    )
+    appointment_id = create_response.json()["id"]
+
+    complete_response = client.patch(
+        f"/appointment-requests/{appointment_id}/status",
+        headers=provider_headers,
+        json={"status": "completed"},
+    )
+    assert complete_response.status_code == 409

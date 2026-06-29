@@ -1,10 +1,14 @@
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import socket
 
 from dotenv import load_dotenv
 
-load_dotenv(override=False)
+# Load .env from the project root regardless of the current working directory.
+# override=False keeps real process env vars authoritative over the file, which
+# is the expected precedence (e.g. `AUTO_CREATE_TABLES=true uv run ...` wins).
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 _INSECURE_JWT_SECRET = "change-me-in-production"
 
@@ -28,6 +32,10 @@ class Settings:
         os.getenv("WEBSOCKET_REDIS_CONSUMER_ENABLED", "false").lower() == "true"
     )
     outbox_batch_size: int = int(os.getenv("OUTBOX_BATCH_SIZE", "50"))
+    # DB_ECHO logs every SQL statement; DB_ECHO_POOL logs connection pool
+    # activity (connect / checkout / checkin). Keep both off in production.
+    db_echo: bool = os.getenv("DB_ECHO", "false").lower() == "true"
+    db_echo_pool: bool = os.getenv("DB_ECHO_POOL", "false").lower() == "true"
 
     def __post_init__(self) -> None:
         # Refuse to start in production with the placeholder signing key, which

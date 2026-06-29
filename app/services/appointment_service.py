@@ -19,6 +19,26 @@ from app.services.authorization import (
 from app.services.notification_service import create_slot_reopened_notifications
 
 
+ALLOWED_STATUS_TRANSITIONS = {
+    AppointmentStatus.pending.value: {
+        AppointmentStatus.confirmed,
+        AppointmentStatus.declined,
+        AppointmentStatus.cancelled,
+    },
+    AppointmentStatus.confirmed.value: {
+        AppointmentStatus.completed,
+        AppointmentStatus.declined,
+        AppointmentStatus.cancelled,
+    },
+}
+
+TERMINAL_APPOINTMENT_STATUSES = {
+    AppointmentStatus.cancelled.value,
+    AppointmentStatus.declined.value,
+    AppointmentStatus.completed.value,
+}
+
+
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -142,13 +162,17 @@ def update_appointment_status(
 
     if new_status == AppointmentStatus.pending:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot move back to pending")
-    if appointment.status in {
-        AppointmentStatus.cancelled.value,
-        AppointmentStatus.completed.value,
-    } and appointment.status != new_status.value:
+    if appointment.status == new_status.value:
+        return appointment
+    if appointment.status in TERMINAL_APPOINTMENT_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Appointment is already finalized",
+        )
+    if new_status not in ALLOWED_STATUS_TRANSITIONS.get(appointment.status, set()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invalid appointment status transition",
         )
 
     slot = db.scalar(
@@ -191,10 +215,7 @@ def cancel_appointment(
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot cancel appointment")
 
-    if appointment.status in {
-        AppointmentStatus.cancelled.value,
-        AppointmentStatus.completed.value,
-    }:
+    if appointment.status in TERMINAL_APPOINTMENT_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Appointment is already finalized",

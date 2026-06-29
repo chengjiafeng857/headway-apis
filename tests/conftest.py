@@ -18,9 +18,12 @@ from app.enums import SlotStatus, UserRole  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
     AvailabilitySlot,
+    CareType,
+    ConsentForm,
     InsurancePlan,
     ProviderProfile,
     Specialty,
+    StyleTag,
     User,
 )
 
@@ -108,6 +111,10 @@ def seeded_data(db_session):
 
     anxiety = Specialty(name="Anxiety")
     depression = Specialty(name="Depression")
+    warm = StyleTag(name="Warm")
+    direct = StyleTag(name="Direct")
+    therapy = CareType(name="Therapy")
+    medication_management = CareType(name="Medication management")
     aetna = InsurancePlan(
         carrier_name="Aetna",
         plan_name="Open Choice PPO",
@@ -118,33 +125,84 @@ def seeded_data(db_session):
         plan_name="LocalPlus",
         display_name="Cigna LocalPlus",
     )
-    db_session.add_all([anxiety, depression, aetna, cigna])
+    privacy_notice = ConsentForm(
+        form_key="privacy-notice",
+        title="Privacy notice",
+        version="2026-01",
+        is_required=True,
+        is_active=True,
+    )
+    telehealth_consent = ConsentForm(
+        form_key="telehealth-informed-consent",
+        title="Telehealth Informed Consent",
+        version="2026-01",
+        is_required=True,
+        is_active=True,
+    )
+    db_session.add_all(
+        [
+            anxiety,
+            depression,
+            warm,
+            direct,
+            therapy,
+            medication_management,
+            aetna,
+            cigna,
+            privacy_notice,
+            telehealth_consent,
+        ]
+    )
     db_session.flush()
 
     provider = ProviderProfile(
         user_id=provider_user.id,
         display_name="Dr. Maya Chen",
+        provider_type="therapist",
+        credential="LMHC",
+        quote="I help clients build practical skills for anxiety and depression.",
         bio="Anxiety and depression specialist.",
         city="New York",
         state="NY",
         timezone="America/New_York",
+        years_experience=10,
+        gender="Woman",
+        ethnicity="Asian",
+        languages=["English", "Mandarin"],
+        license_states=["NY", "MA"],
         offers_virtual=True,
         offers_in_person=True,
+        offers_free_consultation=True,
+        accepting_new_clients=True,
     )
     provider.specialties.extend([anxiety, depression])
+    provider.style_tags.append(warm)
+    provider.care_types.append(therapy)
     provider.insurance_plans.append(aetna)
 
     other_provider = ProviderProfile(
         user_id=other_provider_user.id,
         display_name="Dr. Other",
+        provider_type="psychiatric_mental_health_np",
+        credential="PMHNP",
+        quote="Medication management with a direct style.",
         bio="Remote-only therapist.",
         city="Boston",
         state="MA",
         timezone="America/New_York",
+        years_experience=5,
+        gender="Man",
+        ethnicity="Not provided",
+        languages=["English"],
+        license_states=["MA"],
         offers_virtual=True,
         offers_in_person=False,
+        offers_free_consultation=False,
+        accepting_new_clients=True,
     )
     other_provider.specialties.append(depression)
+    other_provider.style_tags.append(direct)
+    other_provider.care_types.append(medication_management)
     other_provider.insurance_plans.append(cigna)
     db_session.add_all([provider, other_provider])
     db_session.flush()
@@ -187,8 +245,14 @@ def seeded_data(db_session):
         "other_provider": other_provider,
         "anxiety": anxiety,
         "depression": depression,
+        "warm": warm,
+        "direct": direct,
+        "therapy": therapy,
+        "medication_management": medication_management,
         "aetna": aetna,
         "cigna": cigna,
+        "privacy_notice": privacy_notice,
+        "telehealth_consent": telehealth_consent,
         "open_slot": open_slot,
         "second_slot": second_slot,
         "booked_slot": booked_slot,

@@ -8,10 +8,12 @@ from app.schemas import (
     AvailabilitySlotCreate,
     AvailabilitySlotRead,
     ProviderDetail,
+    ProviderCareTypesUpdate,
     ProviderInsurancePlansUpdate,
     ProviderProfileCreate,
     ProviderProfileUpdate,
     ProviderSpecialtiesUpdate,
+    ProviderStyleTagsUpdate,
 )
 from app.services import provider_service
 
@@ -95,3 +97,21 @@ def set_my_insurance_plans(
     db: Session = Depends(get_db),
 ) -> ProviderDetail:
     return provider_service.set_my_insurance_plans(db, current_user, payload.insurance_plan_ids)
+
+
+@router.put("/style-tags", response_model=ProviderDetail)
+def set_my_style_tags(
+    payload: ProviderStyleTagsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProviderDetail:
+    return provider_service.set_my_style_tags(db, current_user, payload.style_tag_ids)
+
+
+@router.put("/care-types", response_model=ProviderDetail)
+def set_my_care_types(
+    payload: ProviderCareTypesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProviderDetail:
+    return provider_service.set_my_care_types(db, current_user, payload.care_type_ids)

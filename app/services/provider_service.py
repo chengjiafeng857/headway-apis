@@ -1,12 +1,20 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.enums import SlotStatus
-from app.models import AvailabilitySlot, InsurancePlan, ProviderProfile, Specialty, User
+from app.models import (
+    AvailabilitySlot,
+    CareType,
+    InsurancePlan,
+    ProviderProfile,
+    Specialty,
+    StyleTag,
+    User,
+)
 from app.schemas import (
     AvailabilitySlotCreate,
     InsurancePlanRead,
@@ -19,23 +27,61 @@ from app.services.authorization import ensure_provider
 from app.services.notification_service import create_slot_opened_notifications
 
 
-def provider_summary(provider: ProviderProfile) -> ProviderSummary:
+def _next_available_at_by_provider(
+    db: Session,
+    provider_ids: list[int],
+) -> dict[int, datetime]:
+    if not provider_ids:
+        return {}
+    rows = db.execute(
+        select(AvailabilitySlot.provider_id, func.min(AvailabilitySlot.start_at))
+        .where(
+            AvailabilitySlot.provider_id.in_(provider_ids),
+            AvailabilitySlot.status == SlotStatus.open.value,
+            AvailabilitySlot.start_at >= datetime.now(UTC),
+        )
+        .group_by(AvailabilitySlot.provider_id)
+    ).all()
+    return {provider_id: next_available_at for provider_id, next_available_at in rows}
+
+
+def provider_summary(
+    provider: ProviderProfile,
+    next_available_at: datetime | None = None,
+) -> ProviderSummary:
     return ProviderSummary(
         id=provider.id,
         display_name=provider.display_name,
+        provider_type=provider.provider_type,
+        credential=provider.credential,
+        profile_photo_url=provider.profile_photo_url,
+        quote=provider.quote,
         city=provider.city,
         state=provider.state,
+        years_experience=provider.years_experience,
+        gender=provider.gender,
+        ethnicity=provider.ethnicity,
+        languages=provider.languages,
+        license_states=provider.license_states,
         offers_virtual=provider.offers_virtual,
         offers_in_person=provider.offers_in_person,
+        offers_free_consultation=provider.offers_free_consultation,
+        accepting_new_clients=provider.accepting_new_clients,
+        next_available_at=next_available_at,
         specialties=[specialty.name for specialty in provider.specialties],
+        style_tags=[style_tag.name for style_tag in provider.style_tags],
+        care_types=[care_type.name for care_type in provider.care_types],
         insurance_plans=[
             InsurancePlanRead.model_validate(plan) for plan in provider.insurance_plans
         ],
     )
 
 
-def provider_detail(provider: ProviderProfile) -> ProviderDetail:
-    summary = provider_summary(provider)
+def provider_detail(
+    provider: ProviderProfile,
+    next_available_at: datetime | None = None,
+) -> ProviderDetail:
+    summary = provider_summary(provider, next_available_at=next_available_at)
     return ProviderDetail(
         **summary.model_dump(),
         bio=provider.bio,
@@ -50,13 +96,30 @@ def list_providers(
     city: str | None,
     state: str | None,
     care_type: str | None,
+    session_mode: str | None,
+    provider_type: str | None,
+    style: str | None,
+    gender: str | None,
+    ethnicity: str | None,
+    accepting_new_clients: bool | None,
+    offers_free_consultation: bool | None,
+    available_before: datetime | None,
     limit: int,
     offset: int,
 ) -> list[ProviderSummary]:
+    resolved_session_mode = session_mode or care_type
+    if session_mode and care_type and session_mode != care_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="session_mode and care_type filters must match when both are provided",
+        )
+
     query = (
         select(ProviderProfile)
         .options(
             selectinload(ProviderProfile.specialties),
+            selectinload(ProviderProfile.style_tags),
+            selectinload(ProviderProfile.care_types),
             selectinload(ProviderProfile.insurance_plans),
         )
         .distinct()
@@ -64,6 +127,8 @@ def list_providers(
 
     if specialty:
         query = query.join(ProviderProfile.specialties).where(Specialty.name.ilike(specialty))
+    if style:
+        query = query.join(ProviderProfile.style_tags).where(StyleTag.name.ilike(style))
     if insurance_plan_id:
         query = query.join(ProviderProfile.insurance_plans).where(
             InsurancePlan.id == insurance_plan_id
@@ -72,15 +137,41 @@ def list_providers(
         query = query.where(ProviderProfile.city.ilike(city))
     if state:
         query = query.where(ProviderProfile.state.ilike(state))
-    if care_type == "virtual":
+    if provider_type:
+        query = query.where(ProviderProfile.provider_type.ilike(provider_type))
+    if gender:
+        query = query.where(ProviderProfile.gender.ilike(gender))
+    if ethnicity:
+        query = query.where(ProviderProfile.ethnicity.ilike(ethnicity))
+    if accepting_new_clients is not None:
+        query = query.where(ProviderProfile.accepting_new_clients.is_(accepting_new_clients))
+    if offers_free_consultation is not None:
+        query = query.where(
+            ProviderProfile.offers_free_consultation.is_(offers_free_consultation)
+        )
+    if resolved_session_mode == "virtual":
         query = query.where(ProviderProfile.offers_virtual.is_(True))
-    if care_type == "in_person":
+    if resolved_session_mode == "in_person":
         query = query.where(ProviderProfile.offers_in_person.is_(True))
+    if available_before:
+        query = query.where(
+            select(AvailabilitySlot.id)
+            .where(
+                AvailabilitySlot.provider_id == ProviderProfile.id,
+                AvailabilitySlot.status == SlotStatus.open.value,
+                AvailabilitySlot.start_at <= available_before,
+            )
+            .exists()
+        )
 
     providers = db.scalars(
         query.order_by(ProviderProfile.display_name).offset(offset).limit(limit)
     ).all()
-    return [provider_summary(provider) for provider in providers]
+    next_available = _next_available_at_by_provider(db, [provider.id for provider in providers])
+    return [
+        provider_summary(provider, next_available_at=next_available.get(provider.id))
+        for provider in providers
+    ]
 
 
 def get_provider(db: Session, provider_id: int) -> ProviderDetail:
@@ -89,12 +180,15 @@ def get_provider(db: Session, provider_id: int) -> ProviderDetail:
         .where(ProviderProfile.id == provider_id)
         .options(
             selectinload(ProviderProfile.specialties),
+            selectinload(ProviderProfile.style_tags),
+            selectinload(ProviderProfile.care_types),
             selectinload(ProviderProfile.insurance_plans),
         )
     )
     if provider is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-    return provider_detail(provider)
+    next_available = _next_available_at_by_provider(db, [provider.id])
+    return provider_detail(provider, next_available_at=next_available.get(provider.id))
 
 
 def list_provider_availability(
@@ -128,6 +222,14 @@ def list_insurance_plans(db: Session) -> list[InsurancePlan]:
 # ownership is implicit: every lookup is scoped to current_user.id.
 
 
+def _ensure_offers_care_type(offers_virtual: bool, offers_in_person: bool) -> None:
+    if not offers_virtual and not offers_in_person:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one care type must be offered",
+        )
+
+
 def _load_my_profile(db: Session, current_user: User) -> ProviderProfile:
     """Return the caller's own profile (with relations) or 404.
 
@@ -141,6 +243,8 @@ def _load_my_profile(db: Session, current_user: User) -> ProviderProfile:
         .where(ProviderProfile.user_id == current_user.id)
         .options(
             selectinload(ProviderProfile.specialties),
+            selectinload(ProviderProfile.style_tags),
+            selectinload(ProviderProfile.care_types),
             selectinload(ProviderProfile.insurance_plans),
         )
     )
@@ -155,6 +259,7 @@ def create_my_profile(
     payload: ProviderProfileCreate,
 ) -> ProviderDetail:
     ensure_provider(current_user)
+    _ensure_offers_care_type(payload.offers_virtual, payload.offers_in_person)
     existing = db.scalar(
         select(ProviderProfile.id).where(ProviderProfile.user_id == current_user.id)
     )
@@ -167,12 +272,23 @@ def create_my_profile(
     profile = ProviderProfile(
         user_id=current_user.id,
         display_name=payload.display_name,
+        provider_type=payload.provider_type,
+        credential=payload.credential,
+        profile_photo_url=payload.profile_photo_url,
+        quote=payload.quote,
         bio=payload.bio,
         city=payload.city,
         state=payload.state,
         timezone=payload.timezone,
+        years_experience=payload.years_experience,
+        gender=payload.gender,
+        ethnicity=payload.ethnicity,
+        languages=payload.languages,
+        license_states=payload.license_states,
         offers_virtual=payload.offers_virtual,
         offers_in_person=payload.offers_in_person,
+        offers_free_consultation=payload.offers_free_consultation,
+        accepting_new_clients=payload.accepting_new_clients,
     )
     db.add(profile)
     try:
@@ -198,6 +314,14 @@ def update_my_profile(
 ) -> ProviderDetail:
     profile = _load_my_profile(db, current_user)
     updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field must be provided",
+        )
+    next_offers_virtual = updates.get("offers_virtual", profile.offers_virtual)
+    next_offers_in_person = updates.get("offers_in_person", profile.offers_in_person)
+    _ensure_offers_care_type(next_offers_virtual, next_offers_in_person)
     for field, value in updates.items():
         setattr(profile, field, value)
     db.commit()
@@ -316,6 +440,56 @@ def set_my_insurance_plans(
             detail=f"Unknown insurance plan id(s): {missing}",
         )
     profile.insurance_plans = list(plans)
+    db.commit()
+    db.refresh(profile)
+    return provider_detail(profile)
+
+
+def set_my_style_tags(
+    db: Session,
+    current_user: User,
+    style_tag_ids: list[int],
+) -> ProviderDetail:
+    profile = _load_my_profile(db, current_user)
+    unique_ids = list(dict.fromkeys(style_tag_ids))
+    tags = (
+        db.scalars(select(StyleTag).where(StyleTag.id.in_(unique_ids))).all()
+        if unique_ids
+        else []
+    )
+    found_ids = {tag.id for tag in tags}
+    missing = [style_tag_id for style_tag_id in unique_ids if style_tag_id not in found_ids]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown style tag id(s): {missing}",
+        )
+    profile.style_tags = list(tags)
+    db.commit()
+    db.refresh(profile)
+    return provider_detail(profile)
+
+
+def set_my_care_types(
+    db: Session,
+    current_user: User,
+    care_type_ids: list[int],
+) -> ProviderDetail:
+    profile = _load_my_profile(db, current_user)
+    unique_ids = list(dict.fromkeys(care_type_ids))
+    care_types = (
+        db.scalars(select(CareType).where(CareType.id.in_(unique_ids))).all()
+        if unique_ids
+        else []
+    )
+    found_ids = {care_type.id for care_type in care_types}
+    missing = [care_type_id for care_type_id in unique_ids if care_type_id not in found_ids]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown care type id(s): {missing}",
+        )
+    profile.care_types = list(care_types)
     db.commit()
     db.refresh(profile)
     return provider_detail(profile)

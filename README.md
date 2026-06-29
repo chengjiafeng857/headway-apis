@@ -6,6 +6,10 @@ FastAPI backend inspired by Headway's therapy-provider search and scheduling flo
 
 - Manual JWT authentication
 - Provider search by specialty, insurance, location, and care type
+- Headway-style provider cards with provider type, credential, profile quote,
+  style tags, care types, free-consultation flag, and next available slot
+- Patient account forms for profile details, addresses, emergency contacts, and
+  consent acknowledgements
 - Provider availability
 - Appointment request creation
 - Race-safe slot booking
@@ -75,6 +79,25 @@ uv run pytest
 ```
 
 The test suite uses a file-based SQLite database for fast local unit tests. The booking code also uses PostgreSQL row locks when running against Supabase/Postgres.
+
+## API Notes
+
+`POST /auth/register` requires an explicit `role`. Public self-registration
+allows `patient` and `provider`; `admin` accounts must be provisioned through a
+trusted path.
+
+Patient-owned account data is exposed under `/patients/me`:
+
+- `/patients/me/profile` for the aggregate account forms payload
+- `/patients/me/addresses`
+- `/patients/me/emergency-contacts`
+- `/patients/me/consents`
+
+Provider-owned profile enrichment is exposed under `/providers/me` with
+taxonomy updates for `/specialties`, `/insurance-plans`, `/style-tags`, and
+`/care-types`. Public provider search supports Headway-style filters such as
+`style`, `provider_type`, `gender`, `ethnicity`, `offers_free_consultation`,
+`accepting_new_clients`, `available_before`, and `session_mode`.
 
 ## Realtime Architecture
 
