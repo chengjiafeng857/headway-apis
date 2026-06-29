@@ -191,6 +191,20 @@ class SlotWatcherRead(BaseModel):
     is_active: bool
 
 
+class ProviderFollowCreate(BaseModel):
+    provider_id: int
+
+
+class ProviderFollowRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int
+    provider_id: int
+    is_active: bool
+    created_at: datetime
+
+
 class NotificationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -201,7 +215,7 @@ class NotificationRead(BaseModel):
     provider_name: str
     start_at: datetime
     end_at: datetime
-    appointment_request_id: int
+    appointment_request_id: int | None
     type: NotificationType
     message: str
     is_read: bool

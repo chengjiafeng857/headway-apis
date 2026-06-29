@@ -4,7 +4,140 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import AvailabilitySlot, Notification, User
+from app.enums import NotificationType, UserRole
+from app.models import (
+    AppointmentRequest,
+    AvailabilitySlot,
+    Notification,
+    ProviderFollow,
+    SlotWatcher,
+    User,
+)
+from app.services.outbox_service import create_notification_outbox_event
+
+
+def _matching_provider_follower_ids(
+    db: Session,
+    slot: AvailabilitySlot,
+    exclude_patient_id: int | None,
+) -> set[int]:
+    query = (
+        select(ProviderFollow.patient_id)
+        .join(User, User.id == ProviderFollow.patient_id)
+        .where(
+            ProviderFollow.provider_id == slot.provider_id,
+            ProviderFollow.is_active.is_(True),
+            User.role == UserRole.patient.value,
+            User.is_active.is_(True),
+        )
+    )
+    if exclude_patient_id is not None:
+        query = query.where(ProviderFollow.patient_id != exclude_patient_id)
+    return set(db.scalars(query).all())
+
+
+def _matching_slot_watcher_ids(
+    db: Session,
+    slot: AvailabilitySlot,
+    exclude_patient_id: int | None,
+) -> set[int]:
+    query = (
+        select(SlotWatcher.patient_id)
+        .join(User, User.id == SlotWatcher.patient_id)
+        .where(
+            SlotWatcher.provider_id == slot.provider_id,
+            SlotWatcher.is_active.is_(True),
+            SlotWatcher.start_after <= slot.start_at,
+            SlotWatcher.start_before >= slot.start_at,
+            User.role == UserRole.patient.value,
+            User.is_active.is_(True),
+        )
+    )
+    if exclude_patient_id is not None:
+        query = query.where(SlotWatcher.patient_id != exclude_patient_id)
+    return set(db.scalars(query).all())
+
+
+def _slot_alert_recipient_ids(
+    db: Session,
+    slot: AvailabilitySlot,
+    exclude_patient_id: int | None = None,
+) -> set[int]:
+    return _matching_provider_follower_ids(db, slot, exclude_patient_id) | _matching_slot_watcher_ids(
+        db,
+        slot,
+        exclude_patient_id,
+    )
+
+
+def _notification_exists(
+    db: Session,
+    patient_id: int,
+    slot_id: int,
+    notification_type: NotificationType,
+    appointment_request_id: int | None,
+) -> bool:
+    query = select(Notification.id).where(
+        Notification.user_id == patient_id,
+        Notification.slot_id == slot_id,
+        Notification.type == notification_type.value,
+    )
+    if appointment_request_id is None:
+        query = query.where(Notification.appointment_request_id.is_(None))
+    else:
+        query = query.where(Notification.appointment_request_id == appointment_request_id)
+    return db.scalar(query) is not None
+
+
+def _create_slot_alert_notifications(
+    db: Session,
+    slot: AvailabilitySlot,
+    notification_type: NotificationType,
+    message: str,
+    appointment: AppointmentRequest | None = None,
+    exclude_patient_id: int | None = None,
+) -> None:
+    appointment_request_id = appointment.id if appointment is not None else None
+    for patient_id in _slot_alert_recipient_ids(db, slot, exclude_patient_id):
+        if _notification_exists(db, patient_id, slot.id, notification_type, appointment_request_id):
+            continue
+        notification = Notification(
+            user_id=patient_id,
+            slot=slot,
+            appointment_request=appointment,
+            type=notification_type.value,
+            message=message,
+        )
+        db.add(notification)
+        db.flush()
+        create_notification_outbox_event(db, notification)
+
+
+def create_slot_opened_notifications(db: Session, slot: AvailabilitySlot) -> None:
+    _create_slot_alert_notifications(
+        db,
+        slot=slot,
+        notification_type=NotificationType.slot_opened,
+        message=f"{slot.provider.display_name} opened a slot at {slot.start_at.isoformat()}.",
+    )
+
+
+def create_slot_reopened_notifications(
+    db: Session,
+    slot: AvailabilitySlot,
+    appointment: AppointmentRequest,
+) -> None:
+    _create_slot_alert_notifications(
+        db,
+        slot=slot,
+        notification_type=NotificationType.slot_reopened,
+        message=(
+            f"A slot reopened with provider {appointment.provider.display_name} "
+            f"at {slot.start_at.isoformat()}."
+        ),
+        appointment=appointment,
+        exclude_patient_id=appointment.patient_id,
+    )
 
 
 def list_my_notifications(

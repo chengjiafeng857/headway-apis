@@ -10,8 +10,9 @@ FastAPI backend inspired by Headway's therapy-provider search and scheduling flo
 - Appointment request creation
 - Race-safe slot booking
 - Appointment cancellation and slot reopening
+- Provider follows
 - Provider/time-window watchers
-- In-app reopened-slot notifications
+- In-app slot-opened and reopened-slot notifications
 - Transactional outbox events for reliable notification publishing
 - Redis Streams fanout to a FastAPI WebSocket gateway
 - SQLAlchemy models compatible with PostgreSQL/Supabase
@@ -39,9 +40,9 @@ The frontend connects with the existing FastAPI JWT:
 ws://localhost:8000/ws/notifications?token=<access-token>
 ```
 
-Realtime messages are hints. After receiving a `slot_reopened` event, refresh
-`GET /providers/{provider_id}/availability` before showing the slot as currently
-bookable.
+Realtime messages are hints. After receiving a `slot_opened` or `slot_reopened`
+event, refresh `GET /providers/{provider_id}/availability` before showing the
+slot as currently bookable.
 
 For a Supabase-backed run, copy `.env.example` to `.env`, replace every
 placeholder, and initialize the schema from `supabase/schema.sql` before seeding.
@@ -77,10 +78,11 @@ The test suite uses a file-based SQLite database for fast local unit tests. The 
 
 ## Realtime Architecture
 
-Cancellation and decline flows insert `notifications` rows and `outbox_events`
-rows in the same database transaction. The outbox worker publishes pending events
-to Redis Streams, and the FastAPI WebSocket gateway consumes the stream and pushes
-events to connected users.
+Provider slot creation, appointment cancellation, and appointment decline flows
+insert `notifications` rows and `outbox_events` rows in the same database
+transaction. The outbox worker publishes pending events to Redis Streams, and the
+FastAPI WebSocket gateway consumes the stream and pushes events to connected
+users.
 
 Durable truth remains in the database:
 

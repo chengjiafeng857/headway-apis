@@ -12,6 +12,7 @@ from app.realtime.stream_listener import consume_redis_stream
 from app.routers import (
     appointments,
     auth,
+    follows,
     notifications,
     provider_self,
     providers,
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(provider_self.router)
     app.include_router(providers.router)
     app.include_router(appointments.router)
+    app.include_router(follows.router)
     app.include_router(watchers.router)
     app.include_router(notifications.router)
     app.include_router(realtime_router)

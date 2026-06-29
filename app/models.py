@@ -47,6 +47,7 @@ class User(Base):
         back_populates="patient", foreign_keys="AppointmentRequest.patient_id"
     )
     notifications: Mapped[list["Notification"]] = relationship(back_populates="user")
+    provider_follows: Mapped[list["ProviderFollow"]] = relationship(back_populates="patient")
 
 
 class ProviderProfile(Base):
@@ -81,6 +82,7 @@ class ProviderProfile(Base):
     )
     availability_slots: Mapped[list["AvailabilitySlot"]] = relationship(back_populates="provider")
     appointments: Mapped[list["AppointmentRequest"]] = relationship(back_populates="provider")
+    followers: Mapped[list["ProviderFollow"]] = relationship(back_populates="provider")
 
 
 class Specialty(Base):
@@ -214,18 +216,58 @@ class SlotWatcher(Base):
     )
 
 
+class ProviderFollow(Base):
+    __tablename__ = "provider_follows"
+    __table_args__ = (
+        Index("ix_provider_follows_patient", "patient_id"),
+        Index("ix_provider_follows_provider_active", "provider_id", "is_active"),
+        Index(
+            "uq_active_provider_follow",
+            "patient_id",
+            "provider_id",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("provider_profiles.id"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    patient: Mapped[User] = relationship(back_populates="provider_follows")
+    provider: Mapped[ProviderProfile] = relationship(back_populates="followers")
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
         CheckConstraint(
             f"type IN ({enum_values(NotificationType)})", name="ck_notifications_type"
         ),
-        UniqueConstraint(
+        Index(
+            "uq_notification_dedupe",
             "user_id",
             "slot_id",
             "appointment_request_id",
             "type",
-            name="uq_notification_dedupe",
+            unique=True,
+            postgresql_where=text("appointment_request_id IS NOT NULL"),
+            sqlite_where=text("appointment_request_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_notification_slot_event_dedupe",
+            "user_id",
+            "slot_id",
+            "type",
+            unique=True,
+            postgresql_where=text("appointment_request_id IS NULL"),
+            sqlite_where=text("appointment_request_id IS NULL"),
         ),
         Index("ix_notifications_user_read_created", "user_id", "is_read", "created_at"),
     )
@@ -233,8 +275,8 @@ class Notification(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False)
     slot_id: Mapped[int] = mapped_column(ForeignKey("availability_slots.id"), nullable=False)
-    appointment_request_id: Mapped[int] = mapped_column(
-        ForeignKey("appointment_requests.id"), nullable=False
+    appointment_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey("appointment_requests.id")
     )
     type: Mapped[str] = mapped_column(String(40), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
@@ -244,7 +286,7 @@ class Notification(Base):
 
     user: Mapped[User] = relationship(back_populates="notifications")
     slot: Mapped[AvailabilitySlot] = relationship(back_populates="notifications")
-    appointment_request: Mapped[AppointmentRequest] = relationship(back_populates="notifications")
+    appointment_request: Mapped[AppointmentRequest | None] = relationship(back_populates="notifications")
 
     @property
     def provider_id(self) -> int:

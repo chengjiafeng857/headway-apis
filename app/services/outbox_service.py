@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.enums import NotificationType, OutboxStatus
+from app.enums import OutboxStatus
 from app.models import Notification, OutboxEvent
 
 
@@ -45,7 +45,7 @@ def notification_realtime_payload(notification: Notification) -> dict:
 
 def create_notification_outbox_event(db: Session, notification: Notification) -> OutboxEvent:
     outbox_event = OutboxEvent(
-        event_type=NotificationType.slot_reopened.value,
+        event_type=notification.type,
         aggregate_type="notification",
         aggregate_id=notification.id,
         user_id=notification.user_id,

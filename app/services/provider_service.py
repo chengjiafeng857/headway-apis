@@ -16,6 +16,7 @@ from app.schemas import (
     ProviderSummary,
 )
 from app.services.authorization import ensure_provider
+from app.services.notification_service import create_slot_opened_notifications
 
 
 def provider_summary(provider: ProviderProfile) -> ProviderSummary:
@@ -218,6 +219,8 @@ def create_my_slot(
     )
     db.add(slot)
     try:
+        db.flush()
+        create_slot_opened_notifications(db, slot)
         db.commit()
     except IntegrityError:
         db.rollback()

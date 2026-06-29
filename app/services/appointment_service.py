@@ -5,12 +5,10 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.enums import AppointmentStatus, NotificationType, SlotStatus, UserRole
+from app.enums import AppointmentStatus, SlotStatus, UserRole
 from app.models import (
     AppointmentRequest,
     AvailabilitySlot,
-    Notification,
-    SlotWatcher,
     User,
 )
 from app.services.authorization import (
@@ -18,7 +16,7 @@ from app.services.authorization import (
     ensure_patient,
     get_provider_profile_for_user,
 )
-from app.services.outbox_service import create_notification_outbox_event
+from app.services.notification_service import create_slot_reopened_notifications
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -27,54 +25,13 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _create_reopened_slot_notifications(
-    db: Session,
-    slot: AvailabilitySlot,
-    appointment: AppointmentRequest,
-) -> None:
-    watchers = db.scalars(
-        select(SlotWatcher).where(
-            SlotWatcher.provider_id == slot.provider_id,
-            SlotWatcher.is_active.is_(True),
-            SlotWatcher.start_after <= slot.start_at,
-            SlotWatcher.start_before >= slot.start_at,
-            SlotWatcher.patient_id != appointment.patient_id,
-        )
-    ).all()
-
-    for watcher in watchers:
-        existing_notification = db.scalar(
-            select(Notification.id).where(
-                Notification.user_id == watcher.patient_id,
-                Notification.slot_id == slot.id,
-                Notification.appointment_request_id == appointment.id,
-                Notification.type == NotificationType.slot_reopened.value,
-            )
-        )
-        if existing_notification:
-            continue
-        notification = Notification(
-            user_id=watcher.patient_id,
-            slot=slot,
-            appointment_request=appointment,
-            type=NotificationType.slot_reopened.value,
-            message=(
-                f"A slot reopened with provider {appointment.provider.display_name} "
-                f"at {slot.start_at.isoformat()}."
-            ),
-        )
-        db.add(notification)
-        db.flush()
-        create_notification_outbox_event(db, notification)
-
-
 def _reopen_slot_and_notify(
     db: Session,
     appointment: AppointmentRequest,
     slot: AvailabilitySlot,
 ) -> None:
     slot.status = SlotStatus.open.value
-    _create_reopened_slot_notifications(db, slot, appointment)
+    create_slot_reopened_notifications(db, slot, appointment)
 
 
 def create_appointment_request(
