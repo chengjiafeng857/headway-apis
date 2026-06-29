@@ -384,29 +384,44 @@ def list_my_slots(
     # active appointment is one that has not been cancelled/declined (those
     # reopen the slot), so there is at most one per booked slot.
     booked_slot_ids = [slot.id for slot in slots if slot.status == SlotStatus.booked.value]
-    patient_by_slot: dict[int, int] = {}
+    booker_by_slot: dict[int, tuple[int, str, str]] = {}
     if booked_slot_ids:
         rows = db.execute(
-            select(AppointmentRequest.slot_id, AppointmentRequest.patient_id).where(
+            select(
+                AppointmentRequest.slot_id,
+                AppointmentRequest.patient_id,
+                User.full_name,
+                User.email,
+            )
+            .join(User, User.id == AppointmentRequest.patient_id)
+            .where(
                 AppointmentRequest.slot_id.in_(booked_slot_ids),
                 AppointmentRequest.status.notin_(
                     [AppointmentStatus.cancelled.value, AppointmentStatus.declined.value]
                 ),
             )
         ).all()
-        patient_by_slot = {slot_id: patient_id for slot_id, patient_id in rows}
+        booker_by_slot = {
+            slot_id: (patient_id, full_name, email)
+            for slot_id, patient_id, full_name, email in rows
+        }
 
-    return [
-        ProviderSlotRead(
-            id=slot.id,
-            provider_id=slot.provider_id,
-            start_at=slot.start_at,
-            end_at=slot.end_at,
-            status=slot.status,
-            patient_id=patient_by_slot.get(slot.id),
+    result: list[ProviderSlotRead] = []
+    for slot in slots:
+        booker = booker_by_slot.get(slot.id)
+        result.append(
+            ProviderSlotRead(
+                id=slot.id,
+                provider_id=slot.provider_id,
+                start_at=slot.start_at,
+                end_at=slot.end_at,
+                status=slot.status,
+                patient_id=booker[0] if booker else None,
+                patient_name=booker[1] if booker else None,
+                patient_email=booker[2] if booker else None,
+            )
         )
-        for slot in slots
-    ]
+    return result
 
 
 def close_my_slot(db: Session, current_user: User, slot_id: int) -> None:
