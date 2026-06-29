@@ -4,7 +4,7 @@ FastAPI backend inspired by Headway's therapy-provider search and scheduling flo
 
 ## Features
 
-- Manual JWT authentication
+- Manual JWT authentication plus optional external OAuth/OIDC login
 - Provider search by specialty, insurance, location, and care type
 - Headway-style provider cards with provider type, credential, profile quote,
   style tags, care types, free-consultation flag, and next available slot
@@ -56,6 +56,17 @@ before showing the slot as currently bookable.
 
 For a Supabase-backed run, copy `.env.example` to `.env`, replace every
 placeholder, and initialize the schema from `supabase/schema.sql` before seeding.
+
+Optional external OAuth/OIDC login is additive to the password flow. Start at
+`GET /auth/oauth/{provider}/login`; the callback exchanges the provider code and
+returns the same internal JWT shape as `POST /auth/login`, so protected routes
+and WebSockets continue to use `Authorization: Bearer <access-token>`.
+New OAuth-created users default to `patient`; pass `?role=provider` to the login
+endpoint to create a provider account. `admin` cannot self-register through
+OAuth. Configure providers with `OAUTH_<PROVIDER>_CLIENT_ID`,
+`OAUTH_<PROVIDER>_CLIENT_SECRET`, `OAUTH_<PROVIDER>_AUTHORIZATION_URL`,
+`OAUTH_<PROVIDER>_TOKEN_URL`, and `OAUTH_<PROVIDER>_USERINFO_URL`; Google has
+built-in endpoint defaults when `provider` is `google`.
 
 For Docker:
 
@@ -113,7 +124,9 @@ The test suite uses a file-based SQLite database for fast local unit tests. The 
 
 `POST /auth/register` requires an explicit `role`. Public self-registration
 allows `patient` and `provider`; `admin` accounts must be provisioned through a
-trusted path.
+trusted path. OAuth/OIDC login follows the same public role boundary, links a
+verified provider email to an existing account when possible, and then mints the
+same internal JWT used by the manual login flow.
 
 Patient-owned account data is exposed under `/patients/me`:
 

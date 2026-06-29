@@ -47,6 +47,9 @@ def create_app() -> FastAPI:
         description=(
             "Therapy provider search, appointment scheduling, and reopened-slot "
             "alerts.\n\n"
+            "**Auth:** `POST /auth/login` and OAuth/OIDC callbacks both return "
+            "the same internal bearer token used by protected HTTP routes and "
+            "WebSockets.\n\n"
             "**Realtime notifications:** connect to `/ws/notifications?token=...`. "
             "Socket delivery is best-effort — events fired while a user has no live "
             "socket are dropped, not replayed. Clients MUST reconcile on every "

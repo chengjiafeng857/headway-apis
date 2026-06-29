@@ -14,6 +14,7 @@ from app.core.config import settings
 _JWT_ALGORITHM = "HS256"
 _PASSWORD_ALGORITHM = "pbkdf2_sha256"
 _PASSWORD_ITERATIONS = 600_000
+_UNUSABLE_PASSWORD_PREFIX = "oauth2_unusable$"
 
 
 def hash_password(password: str) -> str:
@@ -25,6 +26,10 @@ def hash_password(password: str) -> str:
         _PASSWORD_ITERATIONS,
     ).hex()
     return f"{_PASSWORD_ALGORITHM}${_PASSWORD_ITERATIONS}${salt}${digest}"
+
+
+def create_unusable_password_hash() -> str:
+    return f"{_UNUSABLE_PASSWORD_PREFIX}{secrets.token_hex(32)}"
 
 
 def verify_password(password: str, password_hash: str) -> bool:

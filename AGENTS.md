@@ -12,6 +12,8 @@ A FastAPI backend inspired by Headway's therapy-provider search and scheduling
 flow. Core capabilities:
 
 - Manual JWT authentication with `patient` / `provider` / `admin` roles.
+- Optional external OAuth/OIDC Authorization Code login that mints the same
+  internal JWT used by the manual login flow.
 - Provider search (specialty, insurance, location, care type, style, etc.) with
   Headway-style provider cards and "next available slot".
 - Patient self-service account data: profile, addresses, emergency contacts,
@@ -31,7 +33,8 @@ flow. Core capabilities:
 - Database: SQLite by default (`sqlite:///./headway.db`); PostgreSQL / Supabase
   in production. Hand-written DDL also in `supabase/schema.sql`.
 - Auth/crypto: hand-rolled HS256 JWT and PBKDF2-SHA256 password hashing in
-  `app/core/security.py` (no external JWT/passlib dependency).
+  `app/core/security.py` (no external JWT/passlib dependency), plus `httpx`
+  calls for configured OAuth/OIDC providers.
 - Tooling: `uv` for env/deps, `pytest` + `pytest-cov` for tests.
 
 ## 3. Layout & layering
@@ -51,7 +54,7 @@ app/
     auth, providers, patient_self, provider_self,
     appointments, follows, watchers, notifications
   services/          # business logic + DB access (the real work lives here)
-    auth_service, authorization, provider_service, patient_service,
+    auth_service, oauth_service, authorization, provider_service, patient_service,
     appointment_service, follow_service, watcher_service,
     notification_service, outbox_service
   realtime/
@@ -78,6 +81,13 @@ repo root; real process env wins over the file). Key vars:
 | `DATABASE_URL` | `sqlite:///./headway.db` | SQLAlchemy URL |
 | `JWT_SECRET_KEY` | `change-me-in-production` | HS256 signing key |
 | `JWT_EXPIRE_MINUTES` | `60` | Access-token lifetime |
+| `OAUTH_<PROVIDER>_CLIENT_ID` | unset | OAuth/OIDC client id |
+| `OAUTH_<PROVIDER>_CLIENT_SECRET` | unset | OAuth/OIDC client secret |
+| `OAUTH_<PROVIDER>_AUTHORIZATION_URL` | unset* | Authorization endpoint |
+| `OAUTH_<PROVIDER>_TOKEN_URL` | unset* | Token endpoint |
+| `OAUTH_<PROVIDER>_USERINFO_URL` | unset* | UserInfo endpoint |
+| `OAUTH_<PROVIDER>_SCOPES` | `openid email profile` | Space/comma-separated scopes |
+| `OAUTH_<PROVIDER>_REQUIRE_VERIFIED_EMAIL` | `true` | Require `email_verified` for linking/creation |
 | `AUTO_CREATE_TABLES` | `false` | `create_all()` on startup (dev only) |
 | `ENVIRONMENT` | `development` | `production` enables guards |
 | `REALTIME_DISPATCH_ENABLED` | `false` | Start the in-process outbox dispatcher |
@@ -87,6 +97,10 @@ repo root; real process env wins over the file). Key vars:
 
 **Production guard:** `__post_init__` refuses to start when
 `ENVIRONMENT=production` and `JWT_SECRET_KEY` is still the placeholder.
+`provider=google` has built-in endpoint defaults; generic providers must set
+the endpoint URLs. `OAUTH_PROVIDERS_JSON` can also define provider objects with
+the same keys (`client_id`, `client_secret`, `authorization_url`, `token_url`,
+`userinfo_url`, `scopes`, `require_verified_email`).
 
 ## 5. Authentication & authorization
 
@@ -104,13 +118,22 @@ repo root; real process env wins over the file). Key vars:
 - **Registration policy:** `POST /auth/register` requires an explicit `role`;
   public self-registration allows `patient`/`provider` only — `admin` must be
   provisioned through a trusted path.
+- **OAuth/OIDC login:** `GET /auth/oauth/{provider}/login` starts Authorization
+  Code flow; `GET /auth/oauth/{provider}/callback` exchanges the code, requires
+  the signed state to match the HttpOnly `oauth_state` cookie set by the login
+  redirect, requires verified email by default, links `(provider, subject)` in
+  `oauth_identities`, and returns the same `TokenResponse` as password login.
+  New OAuth users default to `patient`; `?role=provider` may create a provider
+  user; `admin` is blocked. OAuth-created users get an unusable password hash,
+  so `/auth/login` remains password-only unless a real password account already
+  existed.
 
 ## 6. Data model (`app/models.py` ↔ `supabase/schema.sql`)
 
 One `Base`; the ORM and the SQL file define the same tables, constraints, and
 indexes — **keep them in sync** when you change either.
 
-Tables: `app_users`, `provider_profiles`, `specialties`/`provider_specialties`,
+Tables: `app_users`, `oauth_identities`, `provider_profiles`, `specialties`/`provider_specialties`,
 `style_tags`/`provider_style_tags`, `care_types`/`provider_care_types`,
 `insurance_plans`/`provider_insurance_plans`, `patient_profiles`,
 `patient_addresses`, `emergency_contacts`, `consent_forms`,
@@ -135,6 +158,9 @@ Tables: `app_users`, `provider_profiles`, `specialties`/`provider_specialties`,
   properties** off `slot`/`slot.provider`, not columns.
 - `outbox_events`: status `pending|published|failed|dead` (see §8), `payload`
   JSON snapshot, `attempt_count`, `stream_message_id`, `last_error`.
+- `oauth_identities`: unique `(provider, subject)` external identity linked to
+  `app_users`; email is stored as the latest provider email snapshot, not the
+  long-term identity key.
 
 ## 7. Realtime notification architecture (read this before touching it)
 
@@ -264,7 +290,8 @@ cancelled/declined.
 
 ## 12. API surface (by router)
 
-- **auth** (`/auth`): `POST /register`, `POST /login`, `GET /me`.
+- **auth** (`/auth`): `POST /register`, `POST /login`,
+  `GET /oauth/{provider}/login`, `GET /oauth/{provider}/callback`, `GET /me`.
 - **providers** (public): `GET /providers`, `GET /providers/{id}`,
   `GET /providers/{id}/availability`, `GET /insurance-plans`.
 - **provider_self** (`/providers/me`): `POST` / `GET` / `PATCH` profile;
