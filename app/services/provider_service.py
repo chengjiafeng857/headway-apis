@@ -449,6 +449,11 @@ def close_my_slot(db: Session, current_user: User, slot_id: int) -> Availability
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot close a booked slot; cancel the appointment first",
         )
+    if slot.status == SlotStatus.closed.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Slot is already closed",
+        )
     slot.status = SlotStatus.closed.value
     db.commit()
     db.refresh(slot)
