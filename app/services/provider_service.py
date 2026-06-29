@@ -426,8 +426,8 @@ def list_my_slots(
     return result
 
 
-def close_my_slot(db: Session, current_user: User, slot_id: int) -> None:
-    # Soft-close (status -> cancelled) rather than delete, so historical
+def close_my_slot(db: Session, current_user: User, slot_id: int) -> AvailabilitySlot:
+    # Soft-close (status -> closed) rather than delete, so historical
     # appointments and notifications that reference the slot stay intact.
     profile = _load_my_profile(db, current_user)
     # Pairs with booking's slot lock on Postgres: close waits for an in-flight
@@ -449,8 +449,10 @@ def close_my_slot(db: Session, current_user: User, slot_id: int) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot close a booked slot; cancel the appointment first",
         )
-    slot.status = SlotStatus.cancelled.value
+    slot.status = SlotStatus.closed.value
     db.commit()
+    db.refresh(slot)
+    return slot
 
 
 def set_my_specialties(

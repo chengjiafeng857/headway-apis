@@ -173,7 +173,7 @@ create table if not exists public.availability_slots (
     provider_id bigint not null references public.provider_profiles(id),
     start_at timestamptz not null,
     end_at timestamptz not null,
-    status varchar(20) not null default 'open' check (status in ('open', 'booked', 'cancelled')),
+    status varchar(20) not null default 'open' check (status in ('open', 'booked', 'closed', 'approved')),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     constraint ck_slots_end_after_start check (end_at > start_at),

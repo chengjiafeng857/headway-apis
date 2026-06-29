@@ -73,13 +73,13 @@ def list_my_slots(
     return provider_service.list_my_slots(db, current_user, limit=limit, offset=offset)
 
 
-@router.delete("/availability/{slot_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/availability/{slot_id}", response_model=AvailabilitySlotRead)
 def close_my_slot(
     slot_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> None:
-    provider_service.close_my_slot(db, current_user, slot_id)
+) -> AvailabilitySlot:
+    return provider_service.close_my_slot(db, current_user, slot_id)
 
 
 @router.put("/specialties", response_model=ProviderDetail)
