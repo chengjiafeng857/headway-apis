@@ -154,9 +154,10 @@ class AvailabilitySlotRead(BaseModel):
 
 
 class ProviderSlotRead(AvailabilitySlotRead):
-    # Provider-facing view of their own slots. The patient_* fields are set only
-    # for booked slots (the patient holding the active appointment); all None for
-    # open/cancelled slots.
+    # Provider-facing view of their own slots. The appointment_id / patient_* fields
+    # are set only for booked slots (the active appointment + the patient holding
+    # it); all None for open/cancelled slots.
+    appointment_id: int | None = None
     patient_id: int | None = None
     patient_name: str | None = None
     patient_email: EmailStr | None = None

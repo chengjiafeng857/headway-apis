@@ -384,11 +384,12 @@ def list_my_slots(
     # active appointment is one that has not been cancelled/declined (those
     # reopen the slot), so there is at most one per booked slot.
     booked_slot_ids = [slot.id for slot in slots if slot.status == SlotStatus.booked.value]
-    booker_by_slot: dict[int, tuple[int, str, str]] = {}
+    booker_by_slot: dict[int, tuple[int, int, str, str]] = {}
     if booked_slot_ids:
         rows = db.execute(
             select(
                 AppointmentRequest.slot_id,
+                AppointmentRequest.id,
                 AppointmentRequest.patient_id,
                 User.full_name,
                 User.email,
@@ -402,8 +403,8 @@ def list_my_slots(
             )
         ).all()
         booker_by_slot = {
-            slot_id: (patient_id, full_name, email)
-            for slot_id, patient_id, full_name, email in rows
+            slot_id: (appointment_id, patient_id, full_name, email)
+            for slot_id, appointment_id, patient_id, full_name, email in rows
         }
 
     result: list[ProviderSlotRead] = []
@@ -416,9 +417,10 @@ def list_my_slots(
                 start_at=slot.start_at,
                 end_at=slot.end_at,
                 status=slot.status,
-                patient_id=booker[0] if booker else None,
-                patient_name=booker[1] if booker else None,
-                patient_email=booker[2] if booker else None,
+                appointment_id=booker[0] if booker else None,
+                patient_id=booker[1] if booker else None,
+                patient_name=booker[2] if booker else None,
+                patient_email=booker[3] if booker else None,
             )
         )
     return result
